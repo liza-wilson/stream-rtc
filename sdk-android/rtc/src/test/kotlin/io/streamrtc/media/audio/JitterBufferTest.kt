@@ -50,4 +50,26 @@ class JitterBufferTest {
         assertEquals(0, b.depthMs)
         assertNull(b.poll())
     }
+
+    @Test fun timestampsWrapWithoutReorderingOrDroppingNewerFrames() {
+        val b = buf()
+        val stamps = listOf(0xFFFF_FFE0L, 0xFFFF_FFF0L, 0x0L, 0x10L)
+        val depths = mutableListOf<Int>()
+        stamps.forEachIndexed { i, ts ->
+            now += 16
+            b.push(ts, byteArrayOf(i.toByte(), 0, 0, 0))
+            depths.add(b.depthMs)
+        }
+        assertEquals(listOf(20, 36, 52, 68), depths)
+        assertEquals(depths.sorted(), depths)
+        stamps.indices.forEach { i ->
+            assertArrayEquals(byteArrayOf(i.toByte(), 0, 0, 0), b.poll())
+        }
+
+        // A frame from before the wrap is older than the last delivered 0x10.
+        now += 16
+        b.push(0xFFFF_FFF8L, byteArrayOf(99, 0, 0, 0))
+        assertEquals(0, b.depthMs)
+        assertNull(b.poll())
+    }
 }

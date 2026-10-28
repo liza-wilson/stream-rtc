@@ -30,4 +30,13 @@ class SyncTest {
         s.reset()
         assertNull(s.offsetMs())
     }
+
+    @Test fun offsetStaysContinuousAcrossTheMediaTimestampWrap() {
+        val s = SyncEstimator(minSamples = 4)
+        s.onAudioArrival(0xFFFF_FFE0L, 20)
+        s.onAudioArrival(0xFFFF_FFF0L, 36)
+        s.onAudioArrival(0x0L, 52)
+        s.onAudioArrival(0x10L, 68)
+        assertEquals(-4_294_967_244L, s.offsetMs())
+    }
 }
