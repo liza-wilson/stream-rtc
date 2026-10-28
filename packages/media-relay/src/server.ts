@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { Budget } from './budget.js'
 import { handleClientFrame, requestKeyframe } from './fanout.js'
@@ -24,6 +25,7 @@ export interface RelayHandle {
   close(): Promise<void>
   registry: RelayRegistry
   address: string
+  httpUrl: string
 }
 
 interface SocketState {
@@ -46,11 +48,29 @@ function sendJson(ws: WsLike, message: Record<string, unknown>): void {
 export async function startRelay(opts: { port: number; deps: RelayDeps }): Promise<RelayHandle> {
   const registry = opts.deps.registry ?? new RelayRegistry({ now: opts.deps.now })
   const nonces = new NonceStore(NONCE_TTL_MS)
-  const wss = new WebSocketServer({ port: opts.port })
 
-  await new Promise<void>((resolve) => wss.once('listening', () => resolve()))
+  const http = createServer((req, res) => {
+    const url = req.url ?? '/'
+    if (url === '/healthz') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ status: 'ok' }))
+      return
+    }
+    if (url === '/readyz') {
+      const stats = registry.stats()
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ status: 'ready', ...stats }))
+      return
+    }
+    res.writeHead(404, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: 'not_found' }))
+  })
 
-  const address = wss.address()
+  const wss = new WebSocketServer({ server: http })
+
+  await new Promise<void>((resolve) => http.listen(opts.port, '127.0.0.1', () => resolve()))
+
+  const address = http.address()
   const port = typeof address === 'object' && address !== null ? address.port : opts.port
 
   const states = new Map<WebSocket, SocketState>()
@@ -162,6 +182,7 @@ export async function startRelay(opts: { port: number; deps: RelayDeps }): Promi
   return {
     registry,
     address: `ws://127.0.0.1:${port}`,
+    httpUrl: `http://127.0.0.1:${port}`,
     close: async () => {
       for (const socket of states.keys()) {
         try {
@@ -172,6 +193,8 @@ export async function startRelay(opts: { port: number; deps: RelayDeps }): Promi
       }
       states.clear()
       await new Promise<void>((resolve) => wss.close(() => resolve()))
+      http.closeAllConnections()
+      await new Promise<void>((resolve) => http.close(() => resolve()))
     },
   }
 }

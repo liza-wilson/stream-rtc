@@ -54,6 +54,20 @@ describe('relay server', () => {
     expect(code).toBe(4401)
   })
 
+  it('serves healthz and readyz over http', async () => {
+    const s = await startRelay({
+      port: 0,
+      deps: { verify: () => ({ ...claims, nonce: `h${Date.now()}` }), now: () => 0 },
+    })
+    stop = s.close
+    const health = await fetch(`${s.httpUrl}/healthz`)
+    expect(health.status).toBe(200)
+    expect(await health.json()).toEqual({ status: 'ok' })
+    const ready = await fetch(`${s.httpUrl}/readyz`)
+    expect(ready.status).toBe(200)
+    expect(await ready.json()).toMatchObject({ status: 'ready', rooms: 0, participants: 0 })
+  })
+
   it('rejects a replayed nonce', async () => {
     const s = await startRelay({ port: 0, deps: { verify: () => claims, now: () => 0 } })
     stop = s.close

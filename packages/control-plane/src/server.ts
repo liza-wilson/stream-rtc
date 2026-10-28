@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { endTimedOutCalls, handleMessage, type Conn, type ControlContext } from './handlers.js'
 import { CallRegistry } from './calls.js'
+import { metricsText, registry } from './metrics.js'
 import { Presence } from './presence.js'
 import { parseClientMessage } from '@streamrtc/protocol'
 import type { AppRegistry } from '@streamrtc/core'
@@ -53,6 +54,10 @@ export async function startControl(opts: { port: number; deps: ControlDeps }): P
   const app: FastifyInstance = Fastify({ logger: false })
   app.get('/healthz', async () => ({ status: 'ok' }))
   app.get('/readyz', async () => ({ status: 'ready', apps: ctx.apps.appIds().length }))
+  app.get('/metrics', async (_request, reply) => {
+    reply.header('content-type', registry.contentType)
+    return metricsText()
+  })
 
   await app.listen({ port: opts.port, host: '127.0.0.1' })
 
