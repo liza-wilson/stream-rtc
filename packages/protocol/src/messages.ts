@@ -28,6 +28,9 @@ const roomRefD = z.strictObject({ roomId: z.string().min(1) })
 
 const pingD = z.strictObject({ ts: z.number() })
 
+const callTokenD = z.strictObject({ callId: z.string().min(1) })
+const keyframeD = z.strictObject({ slot: z.number().int().min(0).max(15) })
+
 const clientSchema = z.discriminatedUnion('t', [
   z.strictObject({ t: z.literal('hello'), d: helloD }),
   z.strictObject({ t: z.literal('call.invite'), d: inviteD }),
@@ -37,6 +40,8 @@ const clientSchema = z.discriminatedUnion('t', [
   z.strictObject({ t: z.literal('room.join'), d: roomRefD }),
   z.strictObject({ t: z.literal('room.leave'), d: roomRefD }),
   z.strictObject({ t: z.literal('room.state'), d: roomRefD }),
+  z.strictObject({ t: z.literal('call.token'), d: callTokenD }),
+  z.strictObject({ t: z.literal('keyframe'), d: keyframeD }),
   z.strictObject({ t: z.literal('ping'), d: pingD }),
 ])
 
@@ -54,6 +59,8 @@ export type ClientMessage =
   | { t: 'room.join'; d: RoomRefD }
   | { t: 'room.leave'; d: RoomRefD }
   | { t: 'room.state'; d: RoomRefD }
+  | { t: 'call.token'; d: { callId: string } }
+  | { t: 'keyframe'; d: { slot: number } }
   | { t: 'ping'; d: { ts: number } }
 
 export type ServerMessageType =

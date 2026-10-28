@@ -37,6 +37,17 @@ describe('client messages', () => {
     const big = JSON.stringify({ t: 'ping', d: { ts: 1, pad: 'x'.repeat(70_000) } })
     expect(parseClientMessage(big)).toBeNull()
   })
+
+  it('parses call.token and relay keyframe requests', () => {
+    expect(parseClientMessage(JSON.stringify({ t: 'call.token', d: { callId: 'c1' } }))?.t).toBe('call.token')
+    expect(parseClientMessage(JSON.stringify({ t: 'keyframe', d: { slot: 3 } }))?.t).toBe('keyframe')
+  })
+
+  it('rejects malformed call.token and keyframe payloads', () => {
+    expect(parseClientMessage(JSON.stringify({ t: 'call.token', d: {} }))).toBeNull()
+    expect(parseClientMessage(JSON.stringify({ t: 'keyframe', d: { slot: -1 } }))).toBeNull()
+    expect(parseClientMessage(JSON.stringify({ t: 'keyframe', d: { slot: 16 } }))).toBeNull()
+  })
 })
 
 describe('server messages', () => {
