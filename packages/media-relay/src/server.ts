@@ -136,6 +136,16 @@ export async function startRelay(opts: {
       }
       if (typeof message !== 'object' || message === null) return
       const typed = message as { t?: unknown; token?: unknown }
+      if (typed.t === 'keyframe') {
+        if (!current.member) return
+        const d = (message as { d?: { slot?: unknown } }).d
+        const slot = typeof d?.slot === 'number' ? d.slot : -1
+        if (!Number.isInteger(slot) || slot < 0 || slot > 15) return
+        const target = registry.memberBySlot(current.member.appId, current.member.roomId, slot)
+        if (!target || target.slot === current.member.slot) return
+        requestKeyframe([target])
+        return
+      }
       if (typed.t !== 'register') return
       if (current.member) return
 
@@ -182,6 +192,7 @@ export async function startRelay(opts: {
         t: 'registered',
         slot: joined.member.slot,
         peers: peers.map((p) => p.slot),
+        peerInfo: peers.map((p) => ({ slot: p.slot, userId: p.userId })),
         limits: { maxParticipants: limits.maxParticipants, maxVideoParticipants: limits.maxVideo },
       })
 

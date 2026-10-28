@@ -86,6 +86,9 @@ export class RelayRegistry {
       room.reserved.delete(userId)
     }
 
+    // A re-registering user takes over their own slot so peers keep their
+    // slot map when the old socket is evicted.
+    if (slot === undefined && existing) slot = existing.slot
     if (slot === undefined) slot = this.lowestFreeSlot(room, maxParticipants)
     if (slot === undefined) {
       this.dropIfEmpty(room)
@@ -149,6 +152,10 @@ export class RelayRegistry {
   members(appId: string, roomId: string): RelayMember[] {
     const room = this.rooms.get(this.key(appId, roomId))
     return room ? [...room.members.values()] : []
+  }
+
+  memberBySlot(appId: string, roomId: string, slot: number): RelayMember | undefined {
+    return this.rooms.get(this.key(appId, roomId))?.members.get(slot)
   }
 
   memberOf(ws: WsLike): RelayMember | undefined {

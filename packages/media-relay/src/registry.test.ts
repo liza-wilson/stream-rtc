@@ -113,4 +113,24 @@ describe('RelayRegistry', () => {
     reg.join('app', 'r1', 'b', sock(), { hasVideo: true })
     expect(reg.peers('app', 'r1', 'a').map((m) => m.userId)).toEqual(['b'])
   })
+
+  it('keeps the slot when the same user re-registers', () => {
+    reg.join('app', 'r1', 'a', sock(), { hasVideo: true })
+    reg.join('app', 'r1', 'b', sock(), { hasVideo: true })
+    const again = reg.join('app', 'r1', 'a', sock(), { hasVideo: true })
+    expect(again.member.slot).toBe(0)
+    expect(reg.members('app', 'r1').map((m) => m.userId).sort()).toEqual(['a', 'b'])
+  })
+
+  it('finds a member by slot', () => {
+    const now = () => 0
+    const r = new RelayRegistry({ now })
+    const wsA = { send: () => {}, close: () => {}, bufferedAmount: 0 }
+    const wsB = { send: () => {}, close: () => {}, bufferedAmount: 0 }
+    r.join('app', 'r1', 'a', wsA, { hasVideo: true })
+    const b = r.join('app', 'r1', 'b', wsB, { hasVideo: true }).member
+    expect(r.memberBySlot('app', 'r1', b.slot)?.userId).toBe('b')
+    expect(r.memberBySlot('app', 'r1', 9)).toBeUndefined()
+    expect(r.memberBySlot('other', 'r1', b.slot)).toBeUndefined()
+  })
 })

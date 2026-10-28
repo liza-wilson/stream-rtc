@@ -18,6 +18,64 @@ const claims = {
   exp: 9e9,
 }
 
+interface RelayClient {
+  ws: WebSocket
+  next(): Promise<Record<string, unknown>>
+  register(): Promise<Record<string, unknown>>
+}
+
+/**
+ * Test client that buffers every relay message from the moment it connects, so
+ * a message can never be lost between connection and listener attachment.
+ */
+function relayClient(url: string): RelayClient {
+  const ws = new WebSocket(url)
+  const queue: Record<string, unknown>[] = []
+  const waiters: Array<(message: Record<string, unknown>) => void> = []
+
+  ws.on('message', (data) => {
+    const message = JSON.parse(data.toString()) as Record<string, unknown>
+    const waiter = waiters.shift()
+    if (waiter) waiter(message)
+    else queue.push(message)
+  })
+
+  const next = (): Promise<Record<string, unknown>> => {
+    const queued = queue.shift()
+    if (queued) return Promise.resolve(queued)
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const waiter = (message: Record<string, unknown>): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(message)
+      }
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        reject(new Error(`timed out waiting for a relay message from ${url}`))
+      }, 2_000)
+      waiters.push(waiter)
+    })
+  }
+
+  return {
+    ws,
+    next,
+    async register() {
+      if (ws.readyState !== WebSocket.OPEN) {
+        await new Promise<void>((resolve) => ws.once('open', () => resolve()))
+      }
+      ws.send(JSON.stringify({ t: 'register', token: 'x' }))
+      for (;;) {
+        const message = await next()
+        if (message['t'] === 'registered') return message
+      }
+    },
+  }
+}
+
 describe('relay server', () => {
   it('registers a valid room token and reports the slot', async () => {
     let n = 0
@@ -128,5 +186,50 @@ describe('relay server', () => {
       b.send(JSON.stringify({ t: 'register', token: 'x' }))
     })
     expect(code).toBe(4401)
+  })
+
+  it('reports peer identity on register', async () => {
+    let n = 0
+    const s = await startRelay({
+      port: 0,
+      deps: { verify: () => ({ ...claims, userId: `u${++n}`, nonce: `n${n}` }), now: () => 0 },
+    })
+    stop = s.close
+    const a = relayClient(s.address)
+    const b = relayClient(s.address)
+    const first = await a.register()
+    const second = await b.register()
+    expect(first['peerInfo']).toEqual([])
+    expect(second['peers']).toEqual([0])
+    expect(second['peerInfo']).toEqual([{ slot: 0, userId: 'u1' }])
+    a.ws.close()
+    b.ws.close()
+  })
+
+  it('forwards a keyframe request to the slot owner', async () => {
+    let n = 0
+    const s = await startRelay({
+      port: 0,
+      deps: { verify: () => ({ ...claims, userId: `u${++n}`, nonce: `n${n}` }), now: () => 0 },
+    })
+    stop = s.close
+    const a = relayClient(s.address)
+    const b = relayClient(s.address)
+    await a.register()
+    await b.register()
+
+    // Registering b already makes the relay send peer_joined and a
+    // join-triggered need_keyframe to a. Drain both before requesting, so only
+    // a message produced by the explicit request can satisfy the assertion.
+    const drained = new Set<string>()
+    while (!drained.has('peer_joined') || !drained.has('need_keyframe')) {
+      drained.add((await a.next())['t'] as string)
+    }
+
+    b.ws.send(JSON.stringify({ t: 'keyframe', d: { slot: 0 } }))
+    const forwarded = await a.next()
+    expect(forwarded['t']).toBe('need_keyframe')
+    a.ws.close()
+    b.ws.close()
   })
 })

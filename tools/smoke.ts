@@ -124,6 +124,23 @@ function expectClose(url: string, send: (ws: WebSocket) => void): Promise<number
   })
 }
 
+function registerAndWait(
+  url: string,
+  token: string,
+): Promise<{ ws: WebSocket; slot: number; peers: number[] }> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url)
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'register', token })))
+    ws.on('message', (d) => {
+      const m = JSON.parse(d.toString()) as Message
+      if (m.t === 'registered') {
+        resolve({ ws, slot: m['slot'] as number, peers: m['peers'] as number[] })
+      }
+    })
+    ws.on('error', reject)
+  })
+}
+
 function sessionToken(userId: string): string {
   return jwt.sign(
     { v: 1, appId: APP_ID, userId, displayName: userId, exp: Math.floor(Date.now() / 1000) + 900 },
@@ -203,8 +220,9 @@ async function main(): Promise<void> {
     )
     const incoming = await bob.next()
     check('call.incoming reaches bob', incoming.t === 'call.incoming')
+    const callId = (incoming.d ?? {})['callId'] as string
 
-    bob.ws.send(JSON.stringify({ t: 'call.accept', d: { callId: (incoming.d ?? {})['callId'] } }))
+    bob.ws.send(JSON.stringify({ t: 'call.accept', d: { callId } }))
     const accepted = await alice.next()
     check('call.accepted reaches alice', accepted.t === 'call.accepted')
 
@@ -232,6 +250,7 @@ async function main(): Promise<void> {
     const regAlice = await mediaAlice.next()
     mediaBob.ws.send(JSON.stringify({ t: 'register', token: tokenBob.d?.['token'] }))
     const regBob = await mediaBob.next()
+    const slotAlice = regAlice['slot'] as number
     check(
       'both registered with distinct slots',
       regAlice.t === 'registered' &&
@@ -305,9 +324,24 @@ async function main(): Promise<void> {
     log('')
     log(`relay latency over loopback: p50 ${p50} ms, p95 ${p95} ms (encode+decode excluded)`)
 
+    // A fresh call.token must let the same user re-register and keep their slot.
+    // This evicts the earlier media socket (close 1008), so it runs after the
+    // media checks.
+    alice.ws.send(JSON.stringify({ t: 'call.token', d: { callId } }))
+    const refreshed = await alice.next()
+    check('call.token returns a token', refreshed.t === 'room.token')
+    if (refreshed.t !== 'room.token') throw new Error('call.token did not return a token')
+    const reRegistered = await registerAndWait(relayUrl, refreshed.d?.['token'] as string)
+    check(
+      'refreshed token can rejoin the same slot',
+      reRegistered.slot === slotAlice,
+      `slot ${String(reRegistered.slot)}`,
+    )
+
     const readyRoom = await (await fetch(`http://127.0.0.1:${RELAY_PORT}/readyz`)).json()
     check('relay reports the live room', readyRoom.rooms === 1 && readyRoom.participants === 2, JSON.stringify(readyRoom))
 
+    reRegistered.ws.close()
     mediaAlice.close()
     mediaBob.close()
     await new Promise((r) => setTimeout(r, 300))
