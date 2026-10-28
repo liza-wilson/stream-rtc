@@ -1,0 +1,24 @@
+{
+  "name": "stream-rtc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --pretty false",
+    "dev:control": "node --experimental-strip-types packages/control-plane/src/main.ts",
+    "dev:relay": "node --experimental-strip-types packages/media-relay/src/main.ts"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "yaml": "^2.8.1"
+  }
+}
