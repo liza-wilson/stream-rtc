@@ -143,7 +143,13 @@ export async function startRelay(opts: {
       try {
         if (typeof typed.token !== 'string' || typed.token.length === 0) throw new Error('missing token')
         claims = opts.deps.verify(typed.token)
-      } catch {
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: 'register_rejected',
+            reason: error instanceof Error ? error.message : 'unknown',
+          }),
+        )
         socket.close(4401, 'invalid_token')
         return
       }

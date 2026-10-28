@@ -16,7 +16,8 @@
     "start:control": "node dist/control/main.js",
     "start:relay": "node dist/relay/main.js",
     "dev:control": "npm run build:control && npm run start:control",
-    "dev:relay": "npm run build:relay && npm run start:relay"
+    "dev:relay": "npm run build:relay && npm run start:relay",
+    "smoke": "npm run build && esbuild tools/smoke.ts --bundle --platform=node --format=esm --target=node22 --external:ws --external:jsonwebtoken --outfile=dist/smoke.js && node dist/smoke.js"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.7",

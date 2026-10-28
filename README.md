@@ -186,7 +186,13 @@ the relay has no Render-specific code.
 ```bash
 npm test                              # all unit + e2e tests
 npx vitest run tools/e2e             # control plane + relay end to end
+npm run smoke                         # live run: builds, starts both services,
+                                      # signs real tokens, relays 40 media frames,
+                                      # prints latency, exits non-zero on failure
 ```
+
+`npm run smoke` uses ports 18180/18181 and a throwaway config in `/tmp`; it also
+checks replay rejection, wrong-secret rejection and participant cleanup.
 
 ## What this backend does not do
 
