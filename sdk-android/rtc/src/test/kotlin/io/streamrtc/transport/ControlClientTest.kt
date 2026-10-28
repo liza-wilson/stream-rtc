@@ -147,4 +147,69 @@ class ControlClientTest {
         assertFalse(client.state.value is ConnectionState.Failed)
         assertEquals(ConnectionState.Idle, client.state.value)
     }
+
+    @Test
+    fun stoppingInsideATerminalCloseCallbackLeavesTheFinalStateIdle() = runTest {
+        val t = FakeControlTransport()
+        lateinit var client: ControlClient
+        val stoppingLogger = object : RtcLogger {
+            override fun d(tag: String, message: String) {
+                client.stop()
+            }
+
+            override fun e(tag: String, message: String, error: Throwable?) = Unit
+        }
+        client = ControlClient(
+            { t },
+            { "tok" },
+            backgroundScope,
+            "dev-1",
+            null,
+            stoppingLogger,
+            Backoff(1, 2, 0.0, Random(1)),
+        )
+        client.start()
+        t.emitOpen()
+        advanceUntilIdle()
+
+        // The real race is an OkHttp callback running while the host calls
+        // stop() on another thread. Logging is the deterministic seam inside
+        // the terminal-close path: it lets the callback observe a completed
+        // stop() before the failure transition is written.
+        t.emitClosed(1008, "duplicate session")
+        advanceUntilIdle()
+
+        assertEquals(ConnectionState.Idle, client.state.value)
+        assertTrue(t.closed)
+    }
+
+    @Test
+    fun aTransportConnectFailureEndsInFailedClosed() = runTest {
+        val failing = object : ControlTransport {
+            override fun connect(
+                onOpen: () -> Unit,
+                onMessage: (String) -> Unit,
+                onClosed: (code: Int, reason: String) -> Unit,
+            ) {
+                throw IllegalStateException("malformed url")
+            }
+
+            override fun send(text: String): Boolean = false
+
+            override fun close() = Unit
+        }
+        val client = ControlClient(
+            { failing },
+            { "tok" },
+            backgroundScope,
+            "dev-1",
+            null,
+            RtcLogger.None,
+            Backoff(1, 2, 0.0, Random(1)),
+        )
+
+        client.start()
+
+        assertEquals(ConnectionState.Failed("closed"), client.state.value)
+    }
 }

@@ -39,4 +39,46 @@ class OkHttpControlTransportTest {
         transport.close()
         server.shutdown()
     }
+
+    @Test
+    fun connectingAgainClosesThePreviousSocket() {
+        val server = MockWebServer()
+        val firstClosed = CountDownLatch(1)
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        firstClosed.countDown()
+                        webSocket.close(1000, null)
+                    }
+                },
+            ),
+        )
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        webSocket.close(1000, null)
+                    }
+                },
+            ),
+        )
+        server.start()
+        val transport = OkHttpControlTransport(
+            OkHttpClient(),
+            server.url("/ws").toString().replace("http", "ws"),
+        )
+
+        val firstOpened = CountDownLatch(1)
+        transport.connect({ firstOpened.countDown() }, { _ -> }, { _, _ -> })
+        assertTrue(firstOpened.await(2, TimeUnit.SECONDS))
+
+        val secondOpened = CountDownLatch(1)
+        transport.connect({ secondOpened.countDown() }, { _ -> }, { _, _ -> })
+        assertTrue(secondOpened.await(2, TimeUnit.SECONDS))
+        assertTrue(firstClosed.await(2, TimeUnit.SECONDS))
+
+        transport.close()
+        server.shutdown()
+    }
 }

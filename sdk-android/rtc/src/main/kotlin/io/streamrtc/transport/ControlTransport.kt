@@ -55,7 +55,12 @@ class OkHttpControlTransport(
             }
         }
         val socket = http.newWebSocket(request, listener)
-        synchronized(lock) { webSocket = socket }
+        val previous = synchronized(lock) {
+            val current = webSocket
+            webSocket = socket
+            current
+        }
+        previous?.close(NORMAL_CLOSURE, null)
     }
 
     override fun send(text: String): Boolean {
