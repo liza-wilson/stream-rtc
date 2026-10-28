@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: streamrtc-control
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node dist/control/main.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.1
+      - key: STREAMRTC_CONFIG_FILE
+        value: /etc/secrets/streamrtc.config.json
+      - key: PUBLIC_RELAY_URL
+        sync: false
+
+  - type: web
+    name: streamrtc-relay
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node dist/relay/main.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.1
+      - key: STREAMRTC_CONFIG_FILE
+        value: /etc/secrets/streamrtc.config.json

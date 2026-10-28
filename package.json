@@ -10,13 +10,19 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",
-    "dev:control": "node --experimental-strip-types packages/control-plane/src/main.ts",
-    "dev:relay": "node --experimental-strip-types packages/media-relay/src/main.ts"
+    "build": "npm run build:control && npm run build:relay",
+    "build:control": "esbuild packages/control-plane/src/main.ts --bundle --platform=node --format=esm --target=node22 --external:fastify --external:ws --external:jsonwebtoken --external:zod --external:prom-client --outfile=dist/control/main.js",
+    "build:relay": "esbuild packages/media-relay/src/main.ts --bundle --platform=node --format=esm --target=node22 --external:ws --external:jsonwebtoken --external:zod --external:prom-client --outfile=dist/relay/main.js",
+    "start:control": "node dist/control/main.js",
+    "start:relay": "node dist/relay/main.js",
+    "dev:control": "npm run build:control && npm run start:control",
+    "dev:relay": "npm run build:relay && npm run start:relay"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.15.0",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.25.9",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
     "yaml": "^2.8.1"

@@ -12,7 +12,7 @@ function required(name: string): string {
 }
 
 const port = Number(process.env['PORT'] ?? 8080)
-const apps = loadConfig(required('STREAMRTC_CONFIG'))
+const apps = loadConfig(required('STREAMRTC_CONFIG_FILE'))
 const publicRelayUrl = required('PUBLIC_RELAY_URL')
 
 const control = await startControl({
