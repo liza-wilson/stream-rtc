@@ -69,6 +69,24 @@ describe('relay server', () => {
     expect(await ready.json()).toMatchObject({ status: 'ready', rooms: 0, participants: 0 })
   })
 
+  it('closes with 1009 when a media frame exceeds 512 KiB', async () => {
+    const s = await startRelay({
+      port: 0,
+      deps: { verify: () => ({ ...claims, nonce: 'big' }), now: () => 0 },
+    })
+    stop = s.close
+    const ws = new WebSocket(s.address)
+    await new Promise<void>((res) => {
+      ws.on('open', () => ws.send(JSON.stringify({ t: 'register', token: 'x' })))
+      ws.on('message', () => res())
+    })
+    const code = await new Promise<number>((res) => {
+      ws.on('close', (c) => res(c))
+      ws.send(Buffer.alloc(512 * 1024 + 10))
+    })
+    expect(code).toBe(1009)
+  })
+
   it('reports the per-app limits supplied by the operator', async () => {
     const s = await startRelay({
       port: 0,

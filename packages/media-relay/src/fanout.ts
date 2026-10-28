@@ -32,9 +32,11 @@ export function handleClientFrame(
   const frame = decodeClientFrame(raw)
   if (!frame) return
 
+  const isVideo = frame.type === TYPE_H264
+  if (isVideo && !from.hasVideo) return
+
   const degradeBytes = deps.degradeBytes ?? DEGRADE_BYTES
   const closeBytes = deps.closeBytes ?? CLOSE_BYTES
-  const isVideo = frame.type === TYPE_H264
 
   from.lastFrameAt = deps.now()
 

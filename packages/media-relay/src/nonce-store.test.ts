@@ -13,4 +13,11 @@ describe('NonceStore', () => {
     s.burn('n1', 0)
     expect(s.burn('n1', 1001)).toBe(true)
   })
+
+  it('honours a per-token TTL override', () => {
+    const s = new NonceStore(600_000)
+    s.burn('n1', 0, 500)
+    expect(s.burn('n1', 400)).toBe(false)
+    expect(s.burn('n1', 501)).toBe(true)
+  })
 })

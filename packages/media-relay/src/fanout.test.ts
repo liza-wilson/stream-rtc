@@ -61,6 +61,19 @@ describe('handleClientFrame', () => {
     expect(slow.sent.filter((x) => Buffer.isBuffer(x))).toHaveLength(1)
   })
 
+  it('drops video from a publisher that declared audio-only', () => {
+    const reg = new RelayRegistry({ now: () => 0 })
+    const a = sock()
+    const b = sock()
+    const ma = reg.join('app', 'r1', 'a', a, { hasVideo: false }).member
+    reg.join('app', 'r1', 'b', b, { hasVideo: true })
+
+    handleClientFrame(reg, ma, encodeClientFrame({ type: 0x20, flags: 0, mediaTs: 1, payload: Buffer.from([1]) }), deps)
+    expect(b.sent).toHaveLength(0)
+    handleClientFrame(reg, ma, encodeClientFrame({ type: 0x10, flags: 0, mediaTs: 2, payload: Buffer.from([1]) }), deps)
+    expect(b.sent).toHaveLength(1)
+  })
+
   it('closes a subscriber above the hard buffer limit with 1013', () => {
     const reg = new RelayRegistry({ now: () => 0 })
     const a = sock()

@@ -166,7 +166,7 @@ export async function startRelay(opts: {
         socket.close(4409, 'room_unavailable')
         return
       }
-      nonces.burn(claims.nonce, now)
+      nonces.burn(claims.nonce, now, Math.min(NONCE_TTL_MS, Math.max(1_000, claims.exp * 1000 - now)))
 
       clearTimeout(current.registerTimer)
       current.member = joined.member

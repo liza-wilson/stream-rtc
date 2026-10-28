@@ -215,6 +215,29 @@ describe('control plane', () => {
     expect((await b.next()).t).toBe('call.ended')
   })
 
+  it('mints audio-only room tokens when the invitation is audio-only', async () => {
+    const s = await start()
+    const a = await connect(s.address)
+    const b = await connect(s.address)
+    hello(a, 'alice')
+    await a.next()
+    hello(b, 'bob')
+    await b.next()
+
+    a.ws.send(
+      JSON.stringify({
+        t: 'call.invite',
+        d: { toUserId: 'bob', roomId: 'r1', media: { audio: true, video: false } },
+      }),
+    )
+    const incoming = await b.next()
+    b.ws.send(JSON.stringify({ t: 'call.accept', d: { callId: incoming.d['callId'] } }))
+    await a.next()
+    const tokenA = await a.next()
+    const claims = jwt.decode(tokenA.d['token'] as string) as Record<string, unknown>
+    expect(claims['video']).toBe(false)
+  })
+
   it('notifies the callee when the caller cancels the invitation', async () => {
     const s = await start()
     const a = await connect(s.address)

@@ -65,6 +65,16 @@ describe('RelayRegistry', () => {
     )
   })
 
+  it('keeps the existing session when a rejoin would exceed the video limit', () => {
+    const r = new RelayRegistry({ now: () => now, maxVideo: 1 })
+    r.join('app', 'r1', 'a', sock(), { hasVideo: true })
+    const b = sock()
+    r.join('app', 'r1', 'b', b, { hasVideo: false })
+    expect(() => r.join('app', 'r1', 'b', sock(), { hasVideo: true })).toThrow(/video_slots_full/)
+    expect(b.closed).toBeUndefined()
+    expect(r.members('app', 'r1').map((m) => m.userId).sort()).toEqual(['a', 'b'])
+  })
+
   it('lets audio-only members in when the video slots are full', () => {
     const r = new RelayRegistry({ now: () => now, maxVideo: 1 })
     r.join('app', 'r1', 'a', sock(), { hasVideo: true })

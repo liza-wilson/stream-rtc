@@ -6,10 +6,10 @@ export class NonceStore {
     this.ttlMs = ttlMs
   }
 
-  burn(nonce: string, nowMs: number): boolean {
+  burn(nonce: string, nowMs: number, ttlMs: number = this.ttlMs): boolean {
     const expiresAt = this.until.get(nonce)
     if (expiresAt !== undefined && expiresAt > nowMs) return false
-    this.until.set(nonce, nowMs + this.ttlMs)
+    this.until.set(nonce, nowMs + ttlMs)
     return true
   }
 

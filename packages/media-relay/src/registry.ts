@@ -75,14 +75,7 @@ export class RelayRegistry {
     const maxVideo = opts.maxVideo ?? this.maxVideo
 
     let evicted: RelayMember | undefined
-    for (const member of room.members.values()) {
-      if (member.userId === userId) {
-        evicted = member
-        room.members.delete(member.slot)
-        member.ws.close(1008, 'duplicate_session')
-        break
-      }
-    }
+    const existing = [...room.members.values()].find((m) => m.userId === userId)
 
     const reservation = room.reserved.get(userId)
     let slot: number | undefined
@@ -100,11 +93,20 @@ export class RelayRegistry {
     }
 
     if (opts.hasVideo) {
-      const videoCount = [...room.members.values()].filter((m) => m.hasVideo).length
+      const videoCount = [...room.members.values()].filter(
+        (m) => m.hasVideo && m !== existing,
+      ).length
       if (videoCount >= maxVideo) {
         this.dropIfEmpty(room)
         throw new RoomError('video_slots_full', `video_slots_full: ${roomId}`)
       }
+    }
+
+    // Limits passed: only now is it safe to evict the user's previous socket.
+    if (existing) {
+      evicted = existing
+      room.members.delete(existing.slot)
+      existing.ws.close(1008, 'duplicate_session')
     }
 
     const member: RelayMember = {
