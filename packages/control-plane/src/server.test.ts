@@ -26,9 +26,10 @@ afterEach(async () => {
 })
 
 const start = async () => {
+  let ids = 0
   const s = await startControl({
     port: 0,
-    deps: { apps, now: () => 1000, id: () => 'id1', publicRelayUrl: 'ws://relay.test/media' },
+    deps: { apps, now: () => 1000, id: () => `id${++ids}`, publicRelayUrl: 'ws://relay.test/media' },
   })
   stop = s.close
   return s
@@ -260,5 +261,85 @@ describe('control plane', () => {
     const ended = await b.next()
     expect(ended.t).toBe('call.rejected')
     expect(ended.d['reason']).toBe('cancel')
+  })
+
+  it('re-mints a room token for an active call with a fresh nonce', async () => {
+    const s = await start()
+    const alice = await connect(s.address)
+    const bob = await connect(s.address)
+    await hello(alice, 'alice')
+    await hello(bob, 'bob')
+    await alice.next()
+    await bob.next()
+
+    alice.ws.send(JSON.stringify({ t: 'call.invite', d: { toUserId: 'bob', roomId: 'r1', media: { audio: true, video: true } } }))
+    const incoming = await bob.next()
+    const callId = incoming.d['callId'] as string
+    bob.ws.send(JSON.stringify({ t: 'call.accept', d: { callId } }))
+
+    expect((await alice.next()).t).toBe('call.accepted')
+    const bobToken = await bob.next()
+    const aliceToken = await alice.next()
+    expect(bobToken.t).toBe('room.token')
+    expect(aliceToken.t).toBe('room.token')
+
+    alice.ws.send(JSON.stringify({ t: 'call.token', d: { callId } }))
+    const refreshed = await alice.next()
+    expect(refreshed.t).toBe('room.token')
+    const first = jwt.decode(aliceToken.d['token'] as string) as { nonce: string; role: string; exp: number; video: boolean }
+    const second = jwt.decode(refreshed.d['token'] as string) as { nonce: string; role: string; exp: number; video: boolean }
+    expect(second.nonce).not.toBe(first.nonce)
+    expect(second.role).toBe(first.role)
+    expect(second.exp).toBeGreaterThan(Math.floor(Date.now() / 1000))
+    expect(first.video).toBe(true)
+    expect(second.video).toBe(true)
+    expect(refreshed.d['roomId']).toBe('r1')
+    expect(refreshed.d['relayUrl']).toBe('ws://relay.test/media')
+    expect(refreshed.d['peers']).toEqual([])
+  })
+
+  it('keeps the audio-only media claim when re-minting a token', async () => {
+    const s = await start()
+    const alice = await connect(s.address)
+    const bob = await connect(s.address)
+    await hello(alice, 'alice')
+    await hello(bob, 'bob')
+    await alice.next()
+    await bob.next()
+
+    alice.ws.send(JSON.stringify({ t: 'call.invite', d: { toUserId: 'bob', roomId: 'r1', media: { audio: true, video: false } } }))
+    const incoming = await bob.next()
+    const callId = incoming.d['callId'] as string
+    bob.ws.send(JSON.stringify({ t: 'call.accept', d: { callId } }))
+    await alice.next()
+    await alice.next()
+
+    alice.ws.send(JSON.stringify({ t: 'call.token', d: { callId } }))
+    const refreshed = await alice.next()
+    expect(refreshed.t).toBe('room.token')
+    const claims = jwt.decode(refreshed.d['token'] as string) as Record<string, unknown>
+    expect(claims['video']).toBe(false)
+  })
+
+  it('rejects call.token for a ringing call and for a stranger', async () => {
+    const s = await start()
+    const alice = await connect(s.address)
+    const bob = await connect(s.address)
+    const eve = await connect(s.address)
+    await hello(alice, 'alice')
+    await hello(bob, 'bob')
+    await hello(eve, 'eve')
+    await alice.next()
+    await bob.next()
+    await eve.next()
+
+    alice.ws.send(JSON.stringify({ t: 'call.invite', d: { toUserId: 'bob', roomId: 'r1', media: { audio: true, video: true } } }))
+    const incoming = await bob.next()
+    const callId = incoming.d['callId'] as string
+
+    alice.ws.send(JSON.stringify({ t: 'call.token', d: { callId } }))
+    expect((await alice.next()).t).toBe('error')
+    eve.ws.send(JSON.stringify({ t: 'call.token', d: { callId } }))
+    expect((await eve.next()).t).toBe('error')
   })
 })

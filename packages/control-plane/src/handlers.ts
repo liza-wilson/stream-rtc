@@ -2,7 +2,7 @@ import { mintRoomToken, verifySession, TokenError } from '@streamrtc/core'
 import type { AppRegistry, SessionClaims } from '@streamrtc/core'
 import { encodeMessage } from '@streamrtc/protocol'
 import type { ClientMessage, ServerMessage } from '@streamrtc/protocol'
-import { CallError, type CallRegistry } from './calls.js'
+import { CallError, type Call, type CallRegistry } from './calls.js'
 import type { Presence } from './presence.js'
 import type { WsLike } from './types.js'
 
@@ -37,6 +37,40 @@ function sendToUser(ctx: ControlContext, appId: string, userId: string, message:
 
 function fail(conn: Conn, code: string, message?: string): void {
   send(conn.ws, { t: 'error', d: message === undefined ? { code } : { code, message } })
+}
+
+function sendRoomToken(
+  ctx: ControlContext,
+  appId: string,
+  call: Call,
+  userId: string,
+  role: 'host' | 'member',
+): void {
+  const app = ctx.apps.get(appId)
+  if (!app) return
+  const token = mintRoomToken(
+    app,
+    {
+      appId,
+      userId,
+      roomId: call.roomId,
+      role,
+      video: call.media?.video ?? true,
+    },
+    ROOM_TOKEN_TTL_SECONDS,
+    ctx.id(),
+  )
+  sendToUser(ctx, appId, userId, {
+    t: 'room.token',
+    d: {
+      token,
+      relayUrl: ctx.publicRelayUrl,
+      roomId: call.roomId,
+      role,
+      expiresIn: ROOM_TOKEN_TTL_SECONDS,
+      peers: [],
+    },
+  })
 }
 
 export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMessage): void {
@@ -140,34 +174,8 @@ export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMe
         fail(conn, 'unknown_app')
         return
       }
-      for (const [userId, role] of [
-        [call.callerId, 'host'],
-        [call.calleeId, 'member'],
-      ] as const) {
-        const token = mintRoomToken(
-          app,
-          {
-            appId: session.appId,
-            userId,
-            roomId: call.roomId,
-            role,
-            video: call.media?.video ?? true,
-          },
-          ROOM_TOKEN_TTL_SECONDS,
-          ctx.id(),
-        )
-        sendToUser(ctx, session.appId, userId, {
-          t: 'room.token',
-          d: {
-            token,
-            relayUrl: ctx.publicRelayUrl,
-            roomId: call.roomId,
-            role,
-            expiresIn: ROOM_TOKEN_TTL_SECONDS,
-            peers: [],
-          },
-        })
-      }
+      sendRoomToken(ctx, session.appId, call, call.callerId, 'host')
+      sendRoomToken(ctx, session.appId, call, call.calleeId, 'member')
       return
     }
 
@@ -216,6 +224,22 @@ export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMe
         d: { callId: call.id, reason: message.d.reason ?? 'ended' },
       })
       ctx.calls.remove(call.id)
+      return
+    }
+
+    case 'call.token': {
+      const call = ctx.calls.get(message.d.callId)
+      if (
+        !call ||
+        call.appId !== session.appId ||
+        call.state !== 'active' ||
+        (call.callerId !== session.userId && call.calleeId !== session.userId)
+      ) {
+        fail(conn, 'not_found')
+        return
+      }
+      const role = call.callerId === session.userId ? 'host' : 'member'
+      sendRoomToken(ctx, session.appId, call, session.userId, role)
       return
     }
 
