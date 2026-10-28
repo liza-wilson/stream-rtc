@@ -25,6 +25,7 @@ export class FakeClient {
   private readonly mediaWaiters: ((b: Buffer) => void)[] = []
 
   private room?: { token: string; relayUrl: string; roomId: string }
+  private closed?: Error
 
   constructor(apps: AppsLike, controlUrl: string) {
     this.apps = apps
@@ -68,6 +69,12 @@ export class FakeClient {
   }
 
   private attach(ws: WebSocket): void {
+    ws.on('close', (code, reason) => {
+      this.closed = new Error(`socket closed ${code} ${reason.toString()}`)
+      for (const waiter of this.waiters.splice(0)) {
+        waiter({ t: '__closed__', d: {} })
+      }
+    })
     ws.on('message', (data, isBinary) => {
       if (isBinary) {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
@@ -89,11 +96,17 @@ export class FakeClient {
   }
 
   private wait(type: string): Promise<Message> {
+    if (this.closed) return Promise.reject(this.closed)
     const index = this.queue.findIndex((m) => m.t === type)
     if (index >= 0) return Promise.resolve(this.queue.splice(index, 1)[0]!)
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`timed out waiting for ${type}`)), 5_000)
       const check = (m: Message): void => {
+        if (m.t === '__closed__') {
+          clearTimeout(timer)
+          reject(this.closed ?? new Error('socket closed'))
+          return
+        }
         if (m.t === type) {
           clearTimeout(timer)
           resolve(m)
