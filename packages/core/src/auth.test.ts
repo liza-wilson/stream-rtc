@@ -76,4 +76,30 @@ describe('room tokens', () => {
       expect((e as TokenError).code).toBe('bad_claims')
     }
   })
+
+  it('does not accept a room token as a session token', () => {
+    const app = apps.get('com.acme.calls')!
+    const t = mintRoomToken(
+      app,
+      { appId: 'com.acme.calls', userId: 'u1', roomId: 'r1', role: 'member' },
+      300,
+      'n1',
+    )
+    try {
+      verifySession(t, apps, Date.now())
+      expect.unreachable('should have thrown')
+    } catch (e) {
+      expect((e as TokenError).code).toBe('bad_claims')
+    }
+  })
+
+  it('rejects a session token with the wrong version', () => {
+    const t = sign({ v: 2, appId: 'com.acme.calls', userId: 'u1', exp: 9999999999 })
+    try {
+      verifySession(t, apps, 1_000_000)
+      expect.unreachable('should have thrown')
+    } catch (e) {
+      expect((e as TokenError).code).toBe('bad_claims')
+    }
+  })
 })

@@ -4,15 +4,18 @@ import WebSocket from 'ws'
 import { startControl } from './server.js'
 
 const secret = 'a'.repeat(32)
+const otherSecret = 'b'.repeat(32)
 const apps = {
   get: (id: string) =>
     id === 'app'
       ? { appId: 'app', secret, maxRoomParticipants: 16, maxVideoParticipants: 8 }
-      : undefined,
-  appIds: () => ['app'],
+      : id === 'other'
+        ? { appId: 'other', secret: otherSecret, maxRoomParticipants: 16, maxVideoParticipants: 8 }
+        : undefined,
+  appIds: () => ['app', 'other'],
 }
-const token = (userId: string) =>
-  jwt.sign({ v: 1, appId: 'app', userId, displayName: userId, exp: 9e9 }, secret, {
+const token = (userId: string, appId = 'app', key = secret) =>
+  jwt.sign({ v: 1, appId, userId, displayName: userId, exp: 9e9 }, key, {
     algorithm: 'HS256',
   })
 
@@ -56,12 +59,17 @@ const connect = (address: string) =>
     },
   )
 
-const hello = (c: { ws: WebSocket; next: () => Promise<{ t: string }> }, userId: string) =>
+const hello = (
+  c: { ws: WebSocket; next: () => Promise<{ t: string }> },
+  userId: string,
+  appId = 'app',
+  key = secret,
+) =>
   c.ws.send(
     JSON.stringify({
       t: 'hello',
       d: {
-        token: token(userId),
+        token: token(userId, appId, key),
         deviceId: 'd',
         platform: 'android',
         codecs: { audio: ['opus'], video: ['h264'] },
@@ -158,6 +166,76 @@ describe('control plane', () => {
     expect(await health.json()).toEqual({ status: 'ok' })
     const ready = await fetch(`${s.httpUrl}/readyz`)
     expect(ready.status).toBe(200)
-    expect(await ready.json()).toEqual({ status: 'ready', apps: 1 })
+    expect(await ready.json()).toEqual({ status: 'ready', apps: 2 })
+  })
+
+  it('closes sockets above the 64 KiB payload limit with 1009', async () => {
+    const s = await start()
+    const ws = new WebSocket(s.address)
+    const code = await new Promise<number>((res) => {
+      ws.on('open', () =>
+        ws.send(JSON.stringify({ t: 'ping', d: { ts: 1, pad: 'x'.repeat(70 * 1024) } })),
+      )
+      ws.on('close', (c) => res(c))
+    })
+    expect(code).toBe(1009)
+  })
+
+  it('refuses call.end and call.reject from another app', async () => {
+    const s = await start()
+    const a = await connect(s.address)
+    const b = await connect(s.address)
+    const eve = await connect(s.address)
+    hello(a, 'alice')
+    await a.next()
+    hello(b, 'bob')
+    await b.next()
+    hello(eve, 'eve', 'other', otherSecret)
+    await eve.next()
+
+    a.ws.send(
+      JSON.stringify({
+        t: 'call.invite',
+        d: { toUserId: 'bob', roomId: 'r1', media: { audio: true, video: true } },
+      }),
+    )
+    const incoming = await b.next()
+    const callId = incoming.d['callId']
+    b.ws.send(JSON.stringify({ t: 'call.accept', d: { callId } }))
+    await a.next()
+    await a.next()
+    await b.next()
+
+    eve.ws.send(JSON.stringify({ t: 'call.end', d: { callId, reason: 'nope' } }))
+    expect((await eve.next()).d['code']).toBe('not_found')
+    eve.ws.send(JSON.stringify({ t: 'call.reject', d: { callId, reason: 'nope' } }))
+    expect((await eve.next()).d['code']).toBe('not_found')
+
+    a.ws.send(JSON.stringify({ t: 'call.end', d: { callId, reason: 'hangup' } }))
+    expect((await b.next()).t).toBe('call.ended')
+  })
+
+  it('notifies the callee when the caller cancels the invitation', async () => {
+    const s = await start()
+    const a = await connect(s.address)
+    const b = await connect(s.address)
+    hello(a, 'alice')
+    await a.next()
+    hello(b, 'bob')
+    await b.next()
+
+    a.ws.send(
+      JSON.stringify({
+        t: 'call.invite',
+        d: { toUserId: 'bob', roomId: 'r1', media: { audio: true, video: true } },
+      }),
+    )
+    const incoming = await b.next()
+    a.ws.send(
+      JSON.stringify({ t: 'call.reject', d: { callId: incoming.d['callId'], reason: 'cancel' } }),
+    )
+    const ended = await b.next()
+    expect(ended.t).toBe('call.rejected')
+    expect(ended.d['reason']).toBe('cancel')
   })
 })

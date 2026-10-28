@@ -20,9 +20,9 @@ describe('handleClientFrame', () => {
     const a = sock()
     const b = sock()
     const c = sock()
-    const ma = reg.join('r1', 'a', a, { hasVideo: true }).member
-    reg.join('r1', 'b', b, { hasVideo: true })
-    reg.join('r1', 'c', c, { hasVideo: true })
+    const ma = reg.join('app', 'r1', 'a', a, { hasVideo: true }).member
+    reg.join('app', 'r1', 'b', b, { hasVideo: true })
+    reg.join('app', 'r1', 'c', c, { hasVideo: true })
 
     handleClientFrame(
       reg,
@@ -41,8 +41,8 @@ describe('handleClientFrame', () => {
     const reg = new RelayRegistry({ now: () => 0 })
     const a = sock()
     const b = sock()
-    const ma = reg.join('r1', 'a', a, { hasVideo: true }).member
-    reg.join('r1', 'b', b, { hasVideo: true })
+    const ma = reg.join('app', 'r1', 'a', a, { hasVideo: true }).member
+    reg.join('app', 'r1', 'b', b, { hasVideo: true })
     expect(() => handleClientFrame(reg, ma, Buffer.alloc(3), deps)).not.toThrow()
     expect(b.sent).toHaveLength(0)
   })
@@ -52,8 +52,8 @@ describe('handleClientFrame', () => {
     const a = sock()
     const slow = sock()
     slow.bufferedAmount = 600 * 1024
-    const ma = reg.join('r1', 'a', a, { hasVideo: true }).member
-    reg.join('r1', 'slow', slow, { hasVideo: true })
+    const ma = reg.join('app', 'r1', 'a', a, { hasVideo: true }).member
+    reg.join('app', 'r1', 'slow', slow, { hasVideo: true })
 
     handleClientFrame(reg, ma, encodeClientFrame({ type: 0x20, flags: 0, mediaTs: 1, payload: Buffer.from([1]) }), deps)
     handleClientFrame(reg, ma, encodeClientFrame({ type: 0x10, flags: 0, mediaTs: 2, payload: Buffer.from([2]) }), deps)
@@ -73,8 +73,8 @@ describe('handleClientFrame', () => {
       },
       bufferedAmount: 3 * 1024 * 1024,
     }
-    const ma = reg.join('r1', 'a', a, { hasVideo: true }).member
-    reg.join('r1', 'dead', dead, { hasVideo: true })
+    const ma = reg.join('app', 'r1', 'a', a, { hasVideo: true }).member
+    reg.join('app', 'r1', 'dead', dead, { hasVideo: true })
 
     handleClientFrame(reg, ma, encodeClientFrame({ type: 0x20, flags: 0, mediaTs: 1, payload: Buffer.from([1]) }), deps)
     expect(closed).toBe(1013)

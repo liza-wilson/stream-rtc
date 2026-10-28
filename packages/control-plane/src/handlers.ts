@@ -88,6 +88,7 @@ export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMe
           roomId,
           callerId: session.userId,
           calleeId: toUserId,
+          media,
         })
       } catch (error) {
         if (error instanceof CallError) {
@@ -145,7 +146,13 @@ export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMe
       ] as const) {
         const token = mintRoomToken(
           app,
-          { appId: session.appId, userId, roomId: call.roomId, role },
+          {
+            appId: session.appId,
+            userId,
+            roomId: call.roomId,
+            role,
+            video: call.media?.video ?? true,
+          },
           ROOM_TOKEN_TTL_SECONDS,
           ctx.id(),
         )
@@ -166,7 +173,7 @@ export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMe
 
     case 'call.reject': {
       const call = ctx.calls.get(message.d.callId)
-      if (!call) {
+      if (!call || call.appId !== session.appId) {
         fail(conn, 'not_found')
         return
       }
@@ -179,7 +186,8 @@ export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMe
         }
         throw error
       }
-      sendToUser(ctx, session.appId, call.callerId, {
+      const other = call.callerId === session.userId ? call.calleeId : call.callerId
+      sendToUser(ctx, session.appId, other, {
         t: 'call.rejected',
         d: { callId: call.id, reason: message.d.reason ?? 'rejected' },
       })
@@ -189,7 +197,7 @@ export function handleMessage(ctx: ControlContext, conn: Conn, message: ClientMe
 
     case 'call.end': {
       const call = ctx.calls.get(message.d.callId)
-      if (!call) {
+      if (!call || call.appId !== session.appId) {
         fail(conn, 'not_found')
         return
       }
@@ -240,6 +248,9 @@ export function endTimedOutCalls(ctx: ControlContext): void {
         })
       }
     }
+    ctx.calls.remove(call.id)
+  }
+  for (const call of ctx.calls.staleActive(ctx.now())) {
     ctx.calls.remove(call.id)
   }
 }

@@ -39,7 +39,7 @@ export function handleClientFrame(
   from.lastFrameAt = deps.now()
 
   const recovered: RelayMember[] = []
-  for (const peer of registry.peers(from.roomId, from.userId)) {
+  for (const peer of registry.peers(from.appId, from.roomId, from.userId)) {
     const buffered = peer.ws.bufferedAmount
 
     if (buffered > closeBytes) {

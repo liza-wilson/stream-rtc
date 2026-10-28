@@ -5,6 +5,7 @@ export interface WsLike {
 }
 
 export interface RelayMember {
+  appId: string
   roomId: string
   userId: string
   slot: number

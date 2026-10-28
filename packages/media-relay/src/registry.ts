@@ -20,8 +20,14 @@ export interface RelayRegistryDeps {
 }
 
 interface Room {
+  key: string
   members: Map<number, RelayMember>
   reserved: Map<string, { slot: number; until: number }>
+}
+
+export interface JoinLimits {
+  maxParticipants?: number
+  maxVideo?: number
 }
 
 export interface JoinResult {
@@ -49,10 +55,24 @@ export class RelayRegistry {
     this.resumeGraceMs = deps.resumeGraceMs ?? DEFAULTS.resumeGraceMs
   }
 
-  join(roomId: string, userId: string, ws: WsLike, opts: { hasVideo: boolean }): JoinResult {
+  private key(appId: string, roomId: string): string {
+    return `${appId}\u0000${roomId}`
+  }
+
+  join(
+    appId: string,
+    roomId: string,
+    userId: string,
+    ws: WsLike,
+    opts: { hasVideo: boolean } & JoinLimits,
+  ): JoinResult {
     const now = this.deps.now()
-    const room = this.rooms.get(roomId) ?? { members: new Map(), reserved: new Map() }
-    this.rooms.set(roomId, room)
+    const key = this.key(appId, roomId)
+    const room = this.rooms.get(key) ?? { key, members: new Map(), reserved: new Map() }
+    this.rooms.set(key, room)
+
+    const maxParticipants = opts.maxParticipants ?? this.maxParticipants
+    const maxVideo = opts.maxVideo ?? this.maxVideo
 
     let evicted: RelayMember | undefined
     for (const member of room.members.values()) {
@@ -73,19 +93,22 @@ export class RelayRegistry {
       room.reserved.delete(userId)
     }
 
-    if (slot === undefined) slot = this.lowestFreeSlot(room)
+    if (slot === undefined) slot = this.lowestFreeSlot(room, maxParticipants)
     if (slot === undefined) {
+      this.dropIfEmpty(room)
       throw new RoomError('room_full', `room_full: ${roomId}`)
     }
 
     if (opts.hasVideo) {
       const videoCount = [...room.members.values()].filter((m) => m.hasVideo).length
-      if (videoCount >= this.maxVideo) {
+      if (videoCount >= maxVideo) {
+        this.dropIfEmpty(room)
         throw new RoomError('video_slots_full', `video_slots_full: ${roomId}`)
       }
     }
 
     const member: RelayMember = {
+      appId,
       roomId,
       userId,
       slot,
@@ -103,7 +126,7 @@ export class RelayRegistry {
   leave(ws: WsLike): RelayMember | undefined {
     const member = this.memberOf(ws)
     if (!member) return undefined
-    const room = this.rooms.get(member.roomId)
+    const room = this.rooms.get(this.key(member.appId, member.roomId))
     if (!room) return member
     room.members.delete(member.slot)
     room.reserved.set(member.userId, {
@@ -111,18 +134,18 @@ export class RelayRegistry {
       until: this.deps.now() + this.resumeGraceMs,
     })
     this.pruneReservations(room, this.deps.now())
-    if (room.members.size === 0 && room.reserved.size === 0) this.rooms.delete(member.roomId)
+    this.dropIfEmpty(room)
     return member
   }
 
-  peers(roomId: string, exceptUserId: string): RelayMember[] {
-    const room = this.rooms.get(roomId)
+  peers(appId: string, roomId: string, exceptUserId: string): RelayMember[] {
+    const room = this.rooms.get(this.key(appId, roomId))
     if (!room) return []
     return [...room.members.values()].filter((m) => m.userId !== exceptUserId)
   }
 
-  members(roomId: string): RelayMember[] {
-    const room = this.rooms.get(roomId)
+  members(appId: string, roomId: string): RelayMember[] {
+    const room = this.rooms.get(this.key(appId, roomId))
     return room ? [...room.members.values()] : []
   }
 
@@ -141,8 +164,20 @@ export class RelayRegistry {
     return { rooms: this.rooms.size, participants }
   }
 
-  private lowestFreeSlot(room: Room): number | undefined {
-    for (let slot = 0; slot < this.maxParticipants; slot++) {
+  /** Drops expired reservations and rooms that no longer hold anyone. */
+  prune(nowMs: number): void {
+    for (const room of this.rooms.values()) {
+      this.pruneReservations(room, nowMs)
+      this.dropIfEmpty(room)
+    }
+  }
+
+  private dropIfEmpty(room: Room): void {
+    if (room.members.size === 0 && room.reserved.size === 0) this.rooms.delete(room.key)
+  }
+
+  private lowestFreeSlot(room: Room, maxParticipants: number): number | undefined {
+    for (let slot = 0; slot < maxParticipants; slot++) {
       if (!room.members.has(slot) && !this.slotReserved(room, slot)) return slot
     }
     return undefined

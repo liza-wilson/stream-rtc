@@ -52,6 +52,7 @@ export class FakeClient {
         userId,
         roomId,
         role: 'member',
+        video: true,
         nonce: randomUUID(),
         exp: Math.floor(Date.now() / 1000) + 300,
       },

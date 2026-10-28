@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { startRelay } from '@streamrtc/media-relay/server'
-import { RelayRegistry } from '@streamrtc/media-relay'
 import { decodeRelayFrame, encodeClientFrame } from '@streamrtc/protocol'
 import { FakeClient } from './fake-client.js'
 
@@ -37,7 +36,7 @@ describe('group call', () => {
     }
   })
 
-  it('rejects a fourth video publisher when the video limit is two', async () => {
+  it('rejects a third video publisher when the video limit is two', async () => {
     const apps = {
       get: (id: string) => ({
         appId: id,
@@ -52,7 +51,7 @@ describe('group call', () => {
       deps: {
         verify: (t) => JSON.parse(Buffer.from(t.split('.')[1]!, 'base64url').toString()),
         now: () => Date.now(),
-        registry: new RelayRegistry({ now: () => Date.now(), maxVideo: 2 }),
+        limits: () => ({ maxParticipants: 16, maxVideo: 2 }),
       },
     })
     try {

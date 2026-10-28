@@ -4,7 +4,7 @@ import { endTimedOutCalls, handleMessage, type Conn, type ControlContext } from 
 import { CallRegistry } from './calls.js'
 import { metricsText, registry } from './metrics.js'
 import { Presence } from './presence.js'
-import { parseClientMessage } from '@streamrtc/protocol'
+import { MAX_MESSAGE_BYTES, parseClientMessage } from '@streamrtc/protocol'
 import type { AppRegistry } from '@streamrtc/core'
 import type { WsLike } from './types.js'
 
@@ -38,7 +38,11 @@ function toWsLike(socket: WebSocket): WsLike {
   }
 }
 
-export async function startControl(opts: { port: number; deps: ControlDeps }): Promise<ControlHandle> {
+export async function startControl(opts: {
+  port: number
+  host?: string
+  deps: ControlDeps
+}): Promise<ControlHandle> {
   const presence = opts.deps.presence ?? new Presence()
   const calls =
     opts.deps.calls ?? new CallRegistry({ now: opts.deps.now, id: opts.deps.id })
@@ -59,12 +63,12 @@ export async function startControl(opts: { port: number; deps: ControlDeps }): P
     return metricsText()
   })
 
-  await app.listen({ port: opts.port, host: '127.0.0.1' })
+  await app.listen({ port: opts.port, host: opts.host ?? '0.0.0.0' })
 
   const httpAddress = app.server.address()
   const port = typeof httpAddress === 'object' && httpAddress !== null ? httpAddress.port : opts.port
 
-  const wss = new WebSocketServer({ server: app.server })
+  const wss = new WebSocketServer({ server: app.server, maxPayload: MAX_MESSAGE_BYTES })
 
   wss.on('connection', (socket: WebSocket) => {
     const ws = toWsLike(socket)

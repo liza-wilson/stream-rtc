@@ -13,12 +13,14 @@ export interface RelayRoomClaims {
   role: 'member' | 'host'
   nonce: string
   exp: number
+  video?: boolean
 }
 
 export interface RelayDeps {
   verify(token: string): RelayRoomClaims
   now(): number
   registry?: RelayRegistry
+  limits?(appId: string): { maxParticipants: number; maxVideo: number } | undefined
 }
 
 export interface RelayHandle {
@@ -36,6 +38,9 @@ interface SocketState {
 
 const REGISTER_TIMEOUT_MS = 5_000
 const NONCE_TTL_MS = 10 * 60_000
+const MAX_MEDIA_BYTES = 512 * 1024
+const SWEEP_INTERVAL_MS = 10_000
+const DEFAULT_LIMITS = { maxParticipants: 16, maxVideo: 8 }
 
 function sendJson(ws: WsLike, message: Record<string, unknown>): void {
   try {
@@ -45,7 +50,11 @@ function sendJson(ws: WsLike, message: Record<string, unknown>): void {
   }
 }
 
-export async function startRelay(opts: { port: number; deps: RelayDeps }): Promise<RelayHandle> {
+export async function startRelay(opts: {
+  port: number
+  host?: string
+  deps: RelayDeps
+}): Promise<RelayHandle> {
   const registry = opts.deps.registry ?? new RelayRegistry({ now: opts.deps.now })
   const nonces = new NonceStore(NONCE_TTL_MS)
 
@@ -66,9 +75,11 @@ export async function startRelay(opts: { port: number; deps: RelayDeps }): Promi
     res.end(JSON.stringify({ error: 'not_found' }))
   })
 
-  const wss = new WebSocketServer({ server: http })
+  const wss = new WebSocketServer({ server: http, maxPayload: MAX_MEDIA_BYTES + 64 })
 
-  await new Promise<void>((resolve) => http.listen(opts.port, '127.0.0.1', () => resolve()))
+  await new Promise<void>((resolve) =>
+    http.listen(opts.port, opts.host ?? '0.0.0.0', () => resolve()),
+  )
 
   const address = http.address()
   const port = typeof address === 'object' && address !== null ? address.port : opts.port
@@ -93,12 +104,17 @@ export async function startRelay(opts: { port: number; deps: RelayDeps }): Promi
           socket.close(4401, 'not_registered')
           return
         }
+        const frame = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
+        if (frame.length > MAX_MEDIA_BYTES) {
+          socket.close(1009, 'frame_too_large')
+          return
+        }
         if (!current.budget.tryConsume('media', opts.deps.now())) {
           socket.close(1008, 'media_rate_limit')
           return
         }
         try {
-          handleClientFrame(registry, current.member, Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer), {
+          handleClientFrame(registry, current.member, frame, {
             now: opts.deps.now,
           })
         } catch {
@@ -132,28 +148,35 @@ export async function startRelay(opts: { port: number; deps: RelayDeps }): Promi
         return
       }
 
-      if (!nonces.burn(claims.nonce, opts.deps.now())) {
+      const now = opts.deps.now()
+      if (nonces.has(claims.nonce)) {
         socket.close(4401, 'replayed_token')
         return
       }
 
+      const limits = opts.deps.limits?.(claims.appId) ?? DEFAULT_LIMITS
       let joined
       try {
-        joined = registry.join(claims.roomId, claims.userId, socket, { hasVideo: true })
+        joined = registry.join(claims.appId, claims.roomId, claims.userId, socket, {
+          hasVideo: claims.video === true,
+          maxParticipants: limits.maxParticipants,
+          maxVideo: limits.maxVideo,
+        })
       } catch {
         socket.close(4409, 'room_unavailable')
         return
       }
+      nonces.burn(claims.nonce, now)
 
       clearTimeout(current.registerTimer)
       current.member = joined.member
 
-      const peers = registry.peers(claims.roomId, claims.userId)
+      const peers = registry.peers(claims.appId, claims.roomId, claims.userId)
       sendJson(socket, {
         t: 'registered',
         slot: joined.member.slot,
         peers: peers.map((p) => p.slot),
-        limits: { maxParticipants: 16, maxVideoParticipants: 8 },
+        limits: { maxParticipants: limits.maxParticipants, maxVideoParticipants: limits.maxVideo },
       })
 
       for (const peer of peers) {
@@ -170,7 +193,7 @@ export async function startRelay(opts: { port: number; deps: RelayDeps }): Promi
       if (!current.member) return
       const left = registry.leave(socket)
       if (!left) return
-      for (const peer of registry.peers(left.roomId, left.userId)) {
+      for (const peer of registry.peers(left.appId, left.roomId, left.userId)) {
         sendJson(peer.ws, { t: 'peer_left', slot: left.slot, userId: left.userId })
       }
     }
@@ -179,11 +202,19 @@ export async function startRelay(opts: { port: number; deps: RelayDeps }): Promi
     socket.on('error', drop)
   })
 
+  const sweep = setInterval(() => {
+    const now = opts.deps.now()
+    nonces.prune(now)
+    registry.prune(now)
+  }, SWEEP_INTERVAL_MS)
+  sweep.unref?.()
+
   return {
     registry,
     address: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
     close: async () => {
+      clearInterval(sweep)
       for (const socket of states.keys()) {
         try {
           socket.terminate()

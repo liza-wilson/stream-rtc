@@ -28,22 +28,28 @@ export interface RoomClaims {
   role: 'member' | 'host'
   nonce: string
   exp: number
+  /** true when this participant publishes video; the relay enforces video slots on it */
+  video?: boolean
 }
 
-const sessionSchema = z.object({
+const sessionSchema = z.strictObject({
+  v: z.literal(1),
   appId: z.string().min(1),
   userId: z.string().min(1),
   displayName: z.string().min(1).optional(),
+  iat: z.number().optional(),
   exp: z.number(),
 })
 
 const roomSchema = z.object({
+  v: z.literal(1),
   appId: z.string().min(1),
   userId: z.string().min(1),
   roomId: z.string().min(1),
   role: z.enum(['member', 'host']),
   nonce: z.string().min(1),
   exp: z.number(),
+  video: z.boolean().optional(),
 })
 
 function readPayload(token: string): Record<string, unknown> {
@@ -130,6 +136,7 @@ export function mintRoomToken(
       userId: claims.userId,
       roomId: claims.roomId,
       role: claims.role,
+      ...(claims.video === undefined ? {} : { video: claims.video }),
       nonce,
       exp: Math.floor(Date.now() / 1000) + ttlSeconds,
     },

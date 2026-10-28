@@ -47,4 +47,11 @@ describe('CallRegistry', () => {
     reg.accept(c.id, 'b')
     expect(reg.silentSince(now + 46_000)).toEqual([])
   })
+
+  it('reports active calls older than the idle TTL', () => {
+    const c = reg.create({ appId: 'app', roomId: 'r1', callerId: 'a', calleeId: 'b' })
+    reg.accept(c.id, 'b')
+    expect(reg.staleActive(now + 3_600_000, 4 * 3_600_000)).toEqual([])
+    expect(reg.staleActive(now + 5 * 3_600_000, 4 * 3_600_000).map((x) => x.id)).toEqual([c.id])
+  })
 })

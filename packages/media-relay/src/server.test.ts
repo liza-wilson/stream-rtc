@@ -13,6 +13,7 @@ const claims = {
   userId: 'a',
   roomId: 'r1',
   role: 'member' as const,
+  video: true,
   nonce: 'n1',
   exp: 9e9,
 }
@@ -66,6 +67,25 @@ describe('relay server', () => {
     const ready = await fetch(`${s.httpUrl}/readyz`)
     expect(ready.status).toBe(200)
     expect(await ready.json()).toMatchObject({ status: 'ready', rooms: 0, participants: 0 })
+  })
+
+  it('reports the per-app limits supplied by the operator', async () => {
+    const s = await startRelay({
+      port: 0,
+      deps: {
+        verify: () => ({ ...claims, video: false, nonce: 'limits' }),
+        now: () => 0,
+        limits: () => ({ maxParticipants: 4, maxVideo: 2 }),
+      },
+    })
+    stop = s.close
+    const ws = new WebSocket(s.address)
+    const msg = await new Promise<Record<string, unknown>>((res) => {
+      ws.on('open', () => ws.send(JSON.stringify({ t: 'register', token: 'x' })))
+      ws.on('message', (d) => res(JSON.parse(d.toString())))
+    })
+    expect(msg['limits']).toEqual({ maxParticipants: 4, maxVideoParticipants: 2 })
+    ws.close()
   })
 
   it('rejects a replayed nonce', async () => {

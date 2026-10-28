@@ -18,6 +18,7 @@ export interface Call {
   roomId: string
   callerId: string
   calleeId: string
+  media?: { audio: boolean; video: boolean }
   state: CallState
   createdAt: number
   answeredAt?: number
@@ -30,6 +31,7 @@ export interface CallRegistryDeps {
 }
 
 const RING_TIMEOUT_MS = 45_000
+const ACTIVE_TTL_MS = 4 * 60 * 60_000
 
 const ALLOWED: Record<CallState, CallState[]> = {
   ringing: ['active', 'rejected', 'ended'],
@@ -46,7 +48,13 @@ export class CallRegistry {
     this.deps = deps
   }
 
-  create(input: { appId?: string; roomId: string; callerId: string; calleeId: string }): Call {
+  create(input: {
+    appId?: string
+    roomId: string
+    callerId: string
+    calleeId: string
+    media?: { audio: boolean; video: boolean }
+  }): Call {
     if (input.callerId === input.calleeId) {
       throw new CallError('forbidden', 'forbidden: cannot call yourself')
     }
@@ -56,6 +64,7 @@ export class CallRegistry {
       roomId: input.roomId,
       callerId: input.callerId,
       calleeId: input.calleeId,
+      ...(input.media === undefined ? {} : { media: input.media }),
       state: 'ringing',
       createdAt: this.deps.now(),
     }
@@ -97,6 +106,14 @@ export class CallRegistry {
     const out: Call[] = []
     for (const call of this.calls.values()) {
       if (call.state === 'ringing' && call.createdAt + RING_TIMEOUT_MS <= nowMs) out.push(call)
+    }
+    return out
+  }
+
+  staleActive(nowMs: number, ttlMs: number = ACTIVE_TTL_MS): Call[] {
+    const out: Call[] = []
+    for (const call of this.calls.values()) {
+      if (call.state === 'active' && call.createdAt + ttlMs <= nowMs) out.push(call)
     }
     return out
   }

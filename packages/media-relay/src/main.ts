@@ -19,6 +19,14 @@ const relay = await startRelay({
   deps: {
     verify: (token) => verifyRoom(token, apps, Date.now()),
     now: () => Date.now(),
+    limits: (appId) => {
+      const app = apps.get(appId)
+      if (!app) return undefined
+      return {
+        maxParticipants: app.maxRoomParticipants,
+        maxVideo: app.maxVideoParticipants,
+      }
+    },
   },
 })
 

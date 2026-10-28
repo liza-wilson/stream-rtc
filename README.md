@@ -79,6 +79,9 @@ const token = jwt.sign(
 )
 ```
 
+`v: 1` is required. Session claims are strict, so a room token cannot be used as
+a session token.
+
 **Room token** (5 min, single use, used to register with the relay):
 
 ```js
@@ -89,6 +92,7 @@ const token = jwt.sign(
     userId: 'u_42',
     roomId: 'r_9f3c',
     role: 'member',            // or "host"
+    video: true,               // false/absent = audio-only, does not consume a video slot
     nonce: crypto.randomUUID(), // burned by the relay; replay closes 4401
     exp: Math.floor(Date.now()/1000) + 300,
   },
@@ -96,6 +100,10 @@ const token = jwt.sign(
   { algorithm: 'HS256' },
 )
 ```
+
+Room tokens minted by the control plane after `call.accept` carry the caller's
+`media.video` intent. Rooms are keyed by `(appId, roomId)`, so two apps may reuse
+the same `roomId` without seeing each other.
 
 For a scheduled meeting the host backend stores the meeting and the `roomId`,
 then signs a room token when a participant joins. This backend never schedules
@@ -110,12 +118,16 @@ Control plane (`/ws`), JSON text frames `{ "t": "...", "d": {...} }`:
 | `hello {token, deviceId, platform, codecs}` | `hello.ok` / `hello.err`, else close `4401` |
 | `call.invite {toUserId, roomId, media}` | `call.incoming` to callee, or `callee_offline` (host app sends FCM) |
 | `call.accept {callId}` | `call.accepted` to caller + `room.token` to both |
-| `call.reject {callId, reason}` | `call.rejected` to caller |
+| `call.reject {callId, reason}` | `call.rejected` to the other party (caller cancel or callee decline) |
 | `call.end {callId, reason}` | `call.ended` to the other party |
-| `room.join {roomId}` | `error {code: "use_room_token"}` |
+| `room.join {roomId}` | `error {code: "use_room_token"}` — a host-signed room token is required |
+| `room.leave {roomId}` | `error {code: "use_room_token"}` |
+| `room.state {roomId}` | `error {code: "unsupported"}` — the relay owns room state |
 | `ping {ts}` | `pong {ts, serverTime}` |
 
-Ringing calls time out after 45 s (`call.ended {reason: "timeout"}`).
+Messages above 64 KiB close the socket with `1009`; a message before `hello.ok`
+closes with `4401`. Ringing calls time out after 45 s
+(`call.ended {reason: "timeout"}`); call records are reaped after 4 h.
 
 Media relay:
 
@@ -123,6 +135,9 @@ Media relay:
 2. Receive `{"t":"registered","slot":0,"peers":[],"limits":{...}}`.
 3. Send binary frames; every other member of the room receives them with the
    sender's slot inserted.
+
+`limits` comes from the app's `maxRoomParticipants` / `maxVideoParticipants`
+config. Frames above 512 KiB close the socket with `1009`.
 
 Binary layout (big endian): `MAGIC 0x53 | VERSION 1 | type | flags | ...`
 
