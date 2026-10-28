@@ -14,6 +14,7 @@ export class CallError extends Error {
 
 export interface Call {
   id: string
+  appId: string
   roomId: string
   callerId: string
   calleeId: string
@@ -45,12 +46,13 @@ export class CallRegistry {
     this.deps = deps
   }
 
-  create(input: { roomId: string; callerId: string; calleeId: string }): Call {
+  create(input: { appId?: string; roomId: string; callerId: string; calleeId: string }): Call {
     if (input.callerId === input.calleeId) {
       throw new CallError('forbidden', 'forbidden: cannot call yourself')
     }
     const call: Call = {
       id: this.deps.id(),
+      appId: input.appId ?? '',
       roomId: input.roomId,
       callerId: input.callerId,
       calleeId: input.calleeId,
