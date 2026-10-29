@@ -13,6 +13,7 @@ import io.streamrtc.api.VideoConfig
 import io.streamrtc.media.audio.AudioDevice
 import io.streamrtc.protocol.ClientMessages
 import io.streamrtc.protocol.FrameCodec
+import io.streamrtc.session.RemoteVideoImpl
 import io.streamrtc.protocol.ServerEvent
 import io.streamrtc.service.ServiceControl
 import java.util.UUID
@@ -89,6 +90,7 @@ class SessionManager(
     private val collectors = mutableListOf<Job>()
     private val pending = LinkedHashMap<String, PendingCall>()
     private val remoteSlots = LinkedHashSet<Int>()
+    private val remoteVideos = mutableMapOf<Int, RemoteVideoImpl>()
 
     // Guarded by [gate].
     private var activeSession: CallSession? = null
@@ -414,6 +416,7 @@ class SessionManager(
                 if (frame.type == FrameCodec.TYPE_PCM16) {
                     remoteSlots.add(frame.senderSlot)
                     audio.write(frame.senderSlot, frame.payload)
+                    remoteVideos[frame.senderSlot]?.onAudioFrame(frame.mediaTs, System.currentTimeMillis())
                 }
                 // Video decoders arrive with Task 16.
             }
@@ -485,6 +488,16 @@ class SessionManager(
      * → foreground service stop → state `Ended`. Idempotent: once the flags are
      * cleared a second call is a no-op unless [force] is set.
      */
+    /** Registers a [RemoteVideoImpl] for [slot] so its A/V gate receives audio. */
+    fun registerRemoteVideo(slot: Int, remote: RemoteVideoImpl) {
+        remoteVideos[slot] = remote
+    }
+
+    /** Unregisters the [RemoteVideoImpl] for [slot]. */
+    fun unregisterRemoteVideo(slot: Int) {
+        remoteVideos.remove(slot)
+    }
+
     private fun teardown(reason: EndReason, closeDevice: Boolean, force: Boolean = false) {
         val call = activeCall
         val hadWork = force || call != null || captureStarted || serviceStarted ||

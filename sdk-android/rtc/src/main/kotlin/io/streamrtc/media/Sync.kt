@@ -100,3 +100,20 @@ class VideoScheduler(
         const val DEFAULT_LATE_DROP_MS = 100L
     }
 }
+
+/**
+ * A/V gate for one remote video: feeds audio arrival samples into a
+ * [SyncEstimator] and decides, for each video frame, whether to render, hold or
+ * drop it using a [VideoScheduler].
+ */
+class FrameGate(
+    private val sync: SyncEstimator = SyncEstimator(20),
+    private val scheduler: VideoScheduler = VideoScheduler(maxReorderFrames = 0),
+) {
+    fun onAudio(mediaTs: Long, arrivalMs: Long) = sync.onAudioArrival(mediaTs, arrivalMs)
+
+    fun videoAction(mediaTs: Long, arrivalMs: Long, nowMs: Long): VideoAction {
+        val offset = sync.offsetMs() ?: return VideoAction.Render
+        return scheduler.action(mediaTs + offset, nowMs)
+    }
+}

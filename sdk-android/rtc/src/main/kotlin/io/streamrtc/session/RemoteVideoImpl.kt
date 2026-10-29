@@ -4,6 +4,10 @@ import io.streamrtc.api.RemoteVideo
 import io.streamrtc.api.RemoteVideoState
 import io.streamrtc.api.RtcLogger
 import io.streamrtc.api.VideoStats
+import io.streamrtc.media.FrameGate
+import io.streamrtc.media.SyncEstimator
+import io.streamrtc.media.VideoAction
+import io.streamrtc.media.VideoScheduler
 import io.streamrtc.media.video.VideoDecoder
 import io.streamrtc.view.SurfaceSink
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +30,10 @@ class RemoteVideoImpl(
     override val stats: StateFlow<VideoStats> = _stats
 
     private var decoder: VideoDecoder? = null
+
+    val gate = FrameGate(SyncEstimator(20), VideoScheduler(maxReorderFrames = 0))
+
+    fun onAudioFrame(mediaTs: Long, arrivalMs: Long) = gate.onAudio(mediaTs, arrivalMs)
 
     override fun attach(surface: android.view.Surface) {
         if (decoder != null) return
