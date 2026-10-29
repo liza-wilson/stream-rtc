@@ -103,6 +103,7 @@ class RelayClient(
     /** Sends one binary media frame; false when no socket is connected. */
     override fun send(bytes: ByteArray): Boolean {
         val socket = synchronized(lock) { transport } ?: return false
+        logger.d(TAG, "Sending binary media frame (${bytes.size} bytes)")
         return socket.send(bytes)
     }
 
@@ -321,6 +322,7 @@ class RelayClient(
             logger.d(TAG, "dropping undecodable relay frame")
             return
         }
+        logger.d(TAG, "Received binary media frame: senderSlot=${frame.senderSlot}, type=${frame.type}, size=${frame.payload.size} bytes")
         synchronized(lock) {
             if (generation != expected || transport !== socket) return
             _events.tryEmit(RelayEvent.Media(frame))

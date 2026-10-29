@@ -36,23 +36,28 @@ class CallService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> stopSelf()
+        try {
+            when (intent?.action) {
+                ACTION_STOP -> stopSelf()
 
-            ACTION_END -> {
-                val end = CallServiceHooks.onEnd
-                if (end != null) {
-                    end()
-                } else {
-                    // No SDK behind the service (process recreated after death):
-                    // the SDK never resumes a call by itself, so clean up.
-                    stopSelf()
+                ACTION_END -> {
+                    val end = CallServiceHooks.onEnd
+                    if (end != null) {
+                        end()
+                    } else {
+                        // No SDK behind the service (process recreated after death):
+                        // the SDK never resumes a call by itself, so clean up.
+                        stopSelf()
+                    }
                 }
+
+                ACTION_TOGGLE_MUTE -> CallServiceHooks.onToggleMute?.invoke()
+
+                else -> enterForeground()
             }
-
-            ACTION_TOGGLE_MUTE -> CallServiceHooks.onToggleMute?.invoke()
-
-            else -> enterForeground()
+        } catch (e: Exception) {
+            Log.e(TAG, "onStartCommand failed", e)
+            stopSelf()
         }
         return START_NOT_STICKY
     }
@@ -146,8 +151,12 @@ class CallService : Service() {
 
         /** Starts the service; safe to call repeatedly. */
         internal fun start(context: Context) {
-            val intent = Intent(context, CallService::class.java).setAction(ACTION_START)
-            ContextCompat.startForegroundService(context, intent)
+            try {
+                val intent = Intent(context, CallService::class.java).setAction(ACTION_START)
+                ContextCompat.startForegroundService(context, intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "startForegroundService failed", e)
+            }
         }
 
         /** Stops the service; safe even when it is not running. */
