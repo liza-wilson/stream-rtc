@@ -5,6 +5,7 @@ import io.streamrtc.api.RtcLogger
 import io.streamrtc.protocol.ClientMessages
 import io.streamrtc.protocol.Messages
 import io.streamrtc.protocol.ServerEvent
+import io.streamrtc.session.ControlLink
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,8 @@ import kotlinx.coroutines.launch
  * close callback racing with a host stop can never publish a state after
  * `Idle`, and a stale socket cannot publish `Online`. Transport ownership and
  * the attempt generation are guarded by the same lock.
+ *
+ * Implements [ControlLink]: the session manager drives it through that seam.
  */
 class ControlClient(
     private val transportFactory: () -> ControlTransport,
@@ -44,14 +47,14 @@ class ControlClient(
     private val appVersion: String?,
     private val logger: RtcLogger = RtcLogger.None,
     private val backoff: Backoff = Backoff(),
-) {
+) : ControlLink {
     private val lock = Any()
 
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
-    val state: StateFlow<ConnectionState> = _state.asStateFlow()
+    override val state: StateFlow<ConnectionState> = _state.asStateFlow()
 
     private val _events = MutableSharedFlow<ServerEvent>(extraBufferCapacity = 64)
-    val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
+    override val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
 
     /** Wall-clock receipt time of the most recent `pong`; 0 before the first. */
     @Volatile
@@ -67,7 +70,7 @@ class ControlClient(
     private var tokenRejections = 0
 
     /** Starts the connection. Repeated calls while running are no-ops. */
-    fun start() {
+    override fun start() {
         synchronized(lock) {
             if (started) return
             started = true
@@ -79,13 +82,13 @@ class ControlClient(
     }
 
     /** Sends a control message; false when no socket is connected. */
-    fun send(text: String): Boolean {
+    override fun send(text: String): Boolean {
         val socket = synchronized(lock) { transport } ?: return false
         return socket.send(text)
     }
 
     /** Stops reconnecting and closes the socket. Never reports [ConnectionState.Failed]. */
-    fun stop() {
+    override fun stop() {
         var job: Job? = null
         var socket: ControlTransport? = null
         synchronized(lock) {
