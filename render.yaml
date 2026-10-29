@@ -3,8 +3,8 @@ services:
     name: streamrtc-control
     runtime: node
     plan: starter
-    buildCommand: npm install && npm run build
-    startCommand: node dist/control/main.js
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && node dist/control/main.js
     healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
@@ -18,8 +18,8 @@ services:
     name: streamrtc-relay
     runtime: node
     plan: starter
-    buildCommand: npm install && npm run build
-    startCommand: node dist/relay/main.js
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && node dist/relay/main.js
     healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION

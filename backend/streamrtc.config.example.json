@@ -1,0 +1,9 @@
+{
+  "apps": {
+    "myapp": {
+      "secret": "replace-with-at-least-32-character-secret-string-here",
+      "maxRoomParticipants": 16,
+      "maxVideoParticipants": 8
+    }
+  }
+}
