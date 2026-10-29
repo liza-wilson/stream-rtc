@@ -5,21 +5,13 @@ import { verifyRoom } from '@streamrtc/core/auth'
 import { startControl } from './server.js'
 import { startRelay } from '@streamrtc/media-relay/server'
 
-function required(name: string): string {
-  const value = process.env[name]
-  if (!value) {
-    console.error(`missing required env var: ${name}`)
-    process.exit(1)
-  }
-  return value
-}
-
 const port = Number(process.env['PORT'] ?? 8080)
-const apps = loadConfig(required('STREAMRTC_CONFIG_FILE'))
-const publicRelayUrl = required('PUBLIC_RELAY_URL')
+const configFile = process.env['STREAMRTC_CONFIG_FILE'] || '/etc/secrets/streamrtc.config.json'
+const apps = loadConfig(configFile)
+const rawRelayUrl = process.env['PUBLIC_RELAY_URL'] || process.env['RENDER_EXTERNAL_URL'] || 'https://streamrtc-relay.onrender.com'
 
 // Same host serves both control and relay; relay is mounted under /relay.
-const relayUrl = publicRelayUrl.endsWith('/relay') ? publicRelayUrl : `${publicRelayUrl.replace(/\/$/, '')}/relay`
+const relayUrl = rawRelayUrl.endsWith('/relay') ? rawRelayUrl : `${rawRelayUrl.replace(/\/$/, '')}/relay`
 const httpServer = createServer()
 
 const control = await startControl({
@@ -59,8 +51,13 @@ httpServer.on('upgrade', (req, socket, head) => {
     if (!relay.handleUpgrade(req, socket, head)) {
       socket.destroy()
     }
-  } else {
+  } else if (pathname === '/ws' || pathname.startsWith('/ws/')) {
     control.handleUpgrade(req, socket, head)
+  } else {
+    // If connecting to root or unknown path, try relay first; fallback to control
+    if (!relay.handleUpgrade(req, socket, head)) {
+      control.handleUpgrade(req, socket, head)
+    }
   }
 })
 

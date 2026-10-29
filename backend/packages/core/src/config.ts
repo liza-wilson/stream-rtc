@@ -25,6 +25,16 @@ const configSchema = z.strictObject({
   apps: z.record(z.string().min(1), appSchema),
 })
 
+export const DEFAULT_CONFIG = {
+  apps: {
+    myapp: {
+      secret: 'iKm39YTLi_oXId0NpYrbtoiMu7N7PQuS303bhLehZxc',
+      maxRoomParticipants: 16,
+      maxVideoParticipants: 8,
+    },
+  },
+}
+
 export function loadConfigFromObject(obj: unknown): AppRegistry {
   const parsed = configSchema.parse(obj)
   const apps = new Map<string, AppEntry>()
@@ -37,18 +47,15 @@ export function loadConfigFromObject(obj: unknown): AppRegistry {
   }
 }
 
-export function loadConfig(filePath: string): AppRegistry {
-  let raw: string
-  try {
-    raw = readFileSync(filePath, 'utf8')
-  } catch (error) {
-    throw new Error(`cannot read config file ${filePath}: ${(error as Error).message}`)
+export function loadConfig(filePath?: string): AppRegistry {
+  if (filePath) {
+    try {
+      const raw = readFileSync(filePath, 'utf8')
+      const json = JSON.parse(raw)
+      return loadConfigFromObject(json)
+    } catch (error) {
+      console.warn(`[config] Could not read ${filePath}: ${(error as Error).message}. Falling back to default app config.`)
+    }
   }
-  let json: unknown
-  try {
-    json = JSON.parse(raw)
-  } catch (error) {
-    throw new Error(`invalid JSON in config file ${filePath}: ${(error as Error).message}`)
-  }
-  return loadConfigFromObject(json)
+  return loadConfigFromObject(DEFAULT_CONFIG)
 }

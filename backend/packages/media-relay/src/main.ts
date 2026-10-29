@@ -2,17 +2,9 @@ import { loadConfig } from '@streamrtc/core/config'
 import { verifyRoom } from '@streamrtc/core/auth'
 import { startRelay } from './server.js'
 
-function required(name: string): string {
-  const value = process.env[name]
-  if (!value) {
-    console.error(`missing required env var: ${name}`)
-    process.exit(1)
-  }
-  return value
-}
-
 const port = Number(process.env['PORT'] ?? 8080)
-const apps = loadConfig(required('STREAMRTC_CONFIG_FILE'))
+const configFile = process.env['STREAMRTC_CONFIG_FILE'] || '/etc/secrets/streamrtc.config.json'
+const apps = loadConfig(configFile)
 
 const relay = await startRelay({
   port,

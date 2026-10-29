@@ -1,23 +1,21 @@
 plugins {
-    alias(libs.plugins.android.library)
+    id("com.android.library")
     id("maven-publish")
 }
 
 android {
     namespace = "io.streamrtc"
-    compileSdk { version = release(36) { minorApiLevel = 1 } }
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 24
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     testOptions { unitTests.isReturnDefaultValues = true }
-
-    sourceSets.getByName("test").resources.srcDirs("../../packages/protocol/testdata")
 
     publishing { singleVariant("release") { withSourcesJar() } }
 }
@@ -25,21 +23,17 @@ android {
 dependencies {
     api(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.camera.core)
-    implementation(libs.camera.camera2)
-    implementation(libs.camera.lifecycle)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
     implementation(libs.okhttp)
-    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.okhttp.mockwebserver)
 
-    androidTestImplementation(libs.androidx.test.junit)
-    androidTestImplementation(libs.androidx.test.runner)
-    androidTestImplementation(libs.androidx.test.rules)
-    androidTestImplementation(libs.androidx.activity)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }
 
 publishing {
