@@ -13,7 +13,11 @@ import io.streamrtc.api.RtcLogger
 import io.streamrtc.api.SessionAudio
 import io.streamrtc.api.StreamRtcConfig
 import io.streamrtc.api.VideoConfig
+import io.streamrtc.media.video.QualityLadder
 import io.streamrtc.media.audio.AudioDevice
+import io.streamrtc.session.ReconnectDecision
+import io.streamrtc.session.ReconnectPolicy
+import io.streamrtc.transport.Backoff
 import io.streamrtc.protocol.ClientMessages
 import io.streamrtc.protocol.FrameCodec
 import io.streamrtc.session.RemoteVideoImpl
@@ -29,6 +33,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -84,6 +89,11 @@ class SessionManager(
     val active: StateFlow<Call?> = _active.asStateFlow()
 
     private val sessionAudio = SessionAudioImpl(audio)
+
+    private val qualityLadder = QualityLadder(config.video)
+    private val reconnectPolicy = ReconnectPolicy(Backoff())
+    private var reconnectAttempt = 0
+    private var qualityTickerJob: Job? = null
 
     @Volatile
     private var running = false
@@ -420,11 +430,14 @@ class SessionManager(
                     TAG,
                     "registered slot=${event.slot} peers=${event.peers.size} limits=${event.limits}",
                 )
+                reconnectAttempt = 0
+                reconnectPolicy.reset()
                 val call = activeCall
                 if (call != null && call.state.value !is CallState.Ended) {
                     call.publish(CallState.Active)
                 }
                 startCallMedia()
+                startQualityTicker()
             }
 
             is RelayEvent.Media -> {
@@ -449,14 +462,46 @@ class SessionManager(
             }
 
             is RelayEvent.Closed -> {
-                // A 4401 (token rejected) is retried after a fresh `call.token`
-                // by Task 18; a transport fault is already being retried by
-                // RelayClient itself.
+                val decision = reconnectPolicy.next(event.code, reconnectAttempt)
+                reconnectAttempt++
+                when (decision) {
+                    is ReconnectDecision.GiveUp -> {
+                        logger.d(TAG, "relay gave up code=${event.code} reason=${decision.code}")
+                        teardown(EndReason.Error(decision.code), closeDevice = false)
+                    }
+
+                    is ReconnectDecision.Retry -> {
+                        if (decision.refreshToken) activeSession?.refreshToken()
+                        relay?.close()
+                        relay = null
+                        if (decision.delayMs > 0) {
+                            scope.launch {
+                                delay(decision.delayMs)
+                            }
+                        }
+                        if (!decision.refreshToken) {
+                            // reconnect immediately with existing token via next room.token
+                        }
+                    }
+                }
                 logger.d(TAG, "relay closed code=${event.code} reason=${event.reason}")
             }
         }
     }
 
+    private fun startQualityTicker() {
+        qualityTickerJob?.cancel()
+        qualityTickerJob = scope.launch {
+            while (running) {
+                val link = relay
+                if (link != null) {
+                    val step = qualityLadder.onQueueSample(link.queuedBytes(), clock())
+                    if (step != null) onQualityChange(step as io.streamrtc.api.VideoConfig)
+                }
+                delay(500)
+            }
+        }
+    }
     private fun startCallMedia() {
         if (config.foregroundService && !serviceStarted) {
             serviceStarted = true
@@ -522,6 +567,10 @@ class SessionManager(
             if (closeDevice) runCatching { audio.close() }
             return
         }
+
+        // 0. Stop the quality ticker.
+        qualityTickerJob?.cancel()
+        qualityTickerJob = null
 
         // 1. Stop capture first: no new frames can enter the relay queue.
         if (captureStarted) {
