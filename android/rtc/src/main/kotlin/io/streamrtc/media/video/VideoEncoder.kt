@@ -42,9 +42,9 @@ class VideoEncoder(
             setString(MediaFormat.KEY_LEVEL, "30")
         }
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        val inputSurface = surface ?: codec.createInputSurface()
-        if (surface == null) surface = inputSurface
-        codec.configure(format, inputSurface, null, 0)
+        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val inputSurface = codec.createInputSurface()
+        this.surface = inputSurface
         codec.start()
         this.codec = codec
         running = true
@@ -69,10 +69,20 @@ class VideoEncoder(
         running = false
         handlerThread?.quitSafely()
         handlerThread = null
-        codec?.stop()
-        codec?.release()
+        try {
+            codec?.stop()
+        } catch (_: Exception) {}
+        try {
+            codec?.release()
+        } catch (_: Exception) {}
         codec = null
+        try {
+            surface?.release()
+        } catch (_: Exception) {}
+        surface = null
     }
+
+    private var spsPps: ByteArray? = null
 
     private fun pump() {
         val codec = codec ?: return
@@ -80,11 +90,23 @@ class VideoEncoder(
         while (running) {
             val index = codec.dequeueOutputBuffer(bufferInfo, 10_000)
             if (index < 0) continue
-            val keyframe = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
             val buffer = codec.getOutputBuffer(index) ?: ByteBuffer.allocate(1)
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
-            onFrame(bytes, keyframe, frameCounter.getAndIncrement())
+
+            if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                spsPps = bytes
+                codec.releaseOutputBuffer(index, false)
+                continue
+            }
+
+            val keyframe = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+            val payload = if (keyframe && spsPps != null) {
+                spsPps!! + bytes
+            } else {
+                bytes
+            }
+            onFrame(payload, keyframe, frameCounter.getAndIncrement())
             codec.releaseOutputBuffer(index, false)
         }
     }

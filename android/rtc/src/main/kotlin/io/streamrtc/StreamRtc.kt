@@ -7,6 +7,9 @@ import io.streamrtc.api.CallMedia
 import io.streamrtc.api.Calls
 import io.streamrtc.api.ConnectionState
 import io.streamrtc.api.IncomingCall
+import io.streamrtc.api.JoinOptions
+import io.streamrtc.api.Room
+import io.streamrtc.api.Rooms
 import io.streamrtc.api.RtcLogger
 import io.streamrtc.api.StreamRtcConfig
 import io.streamrtc.media.audio.DefaultAudioDevice
@@ -89,6 +92,9 @@ class StreamRtc private constructor(
 
     /** The 1:1 calling surface. */
     val calls: Calls = FacadeCalls()
+
+    /** The room / meeting surface. */
+    val rooms: Rooms = FacadeRooms()
 
     /**
      * Opens the control socket. [scope] optionally supplies the parent job: if
@@ -195,6 +201,14 @@ class StreamRtc private constructor(
             val manager = synchronized(lock) { this@StreamRtc.manager }
                 ?: throw IllegalStateException("StreamRtc.start() must be called before dialing")
             return manager.dial(userId, media)
+        }
+    }
+
+    private inner class FacadeRooms : Rooms {
+        override suspend fun join(roomId: String, options: JoinOptions): Room {
+            val manager = synchronized(lock) { this@StreamRtc.manager }
+                ?: throw IllegalStateException("StreamRtc.start() must be called before joining rooms")
+            return manager.rooms.join(roomId, options)
         }
     }
 

@@ -35,6 +35,10 @@ class RemoteVideoImpl(
 
     fun onAudioFrame(mediaTs: Long, arrivalMs: Long) = gate.onAudio(mediaTs, arrivalMs)
 
+    fun push(frame: io.streamrtc.protocol.RelayFrame) {
+        decoder?.push(frame)
+    }
+
     override fun attach(surface: android.view.Surface) {
         if (decoder != null) return
         _state.value = RemoteVideoState.WaitingForKeyframe

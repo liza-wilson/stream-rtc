@@ -21,9 +21,17 @@ interface Room {
     val state: StateFlow<RoomState>
     val participants: StateFlow<List<Participant>>
     val audio: SessionAudio
+    val localVideo: StateFlow<LocalVideo?>
+    val remoteVideos: StateFlow<Map<Int, RemoteVideo>>
 
     /** The remote video published on [slot], or null for an unknown slot. */
     fun remoteVideo(slot: Int): RemoteVideo?
+
+    /** Starts local camera and H.264 encoder. */
+    fun startVideo(context: android.content.Context, lifecycleOwner: androidx.lifecycle.LifecycleOwner)
+
+    /** Stops local camera and H.264 encoder. */
+    fun stopVideo()
 
     /** Leaves the room and releases its media. Idempotent. */
     suspend fun leave()
