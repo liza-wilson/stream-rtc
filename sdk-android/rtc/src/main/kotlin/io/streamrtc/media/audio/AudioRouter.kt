@@ -20,6 +20,46 @@ enum class AudioRoute { Speaker, Earpiece, Headset, Bluetooth }
  */
 enum class AudioFocusState { Paused, Resumed, Lost }
 
+private val BLUETOOTH_TYPES = setOf(
+    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+    AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+    AudioDeviceInfo.TYPE_BLE_HEADSET,
+    AudioDeviceInfo.TYPE_BLE_SPEAKER,
+)
+
+private val HEADSET_TYPES = setOf(
+    AudioDeviceInfo.TYPE_WIRED_HEADSET,
+    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+    AudioDeviceInfo.TYPE_USB_HEADSET,
+    AudioDeviceInfo.TYPE_USB_DEVICE,
+)
+
+/**
+ * Pure route selection shared by the platform adapter and unit tests.
+ *
+ * When the platform reports an explicitly selected communication device, that
+ * device is the truth — even if other outputs are present. Only when nothing is
+ * selected do we fall back to the output-device scan (Bluetooth beats a wired
+ * headset, which beats the builtin pair) and finally to the speakerphone flag.
+ */
+internal fun selectAudioRoute(
+    outputTypes: Collection<Int>,
+    selectedType: Int?,
+    speakerphone: Boolean,
+): AudioRoute {
+    if (selectedType != null) return routeForDeviceType(selectedType)
+    if (outputTypes.any { it in BLUETOOTH_TYPES }) return AudioRoute.Bluetooth
+    if (outputTypes.any { it in HEADSET_TYPES }) return AudioRoute.Headset
+    return if (speakerphone) AudioRoute.Speaker else AudioRoute.Earpiece
+}
+
+private fun routeForDeviceType(type: Int): AudioRoute = when (type) {
+    in BLUETOOTH_TYPES -> AudioRoute.Bluetooth
+    in HEADSET_TYPES -> AudioRoute.Headset
+    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> AudioRoute.Speaker
+    else -> AudioRoute.Earpiece
+}
+
 /**
  * Owns the call's [AudioManager] configuration: communication mode, transient
  * audio focus, speakerphone selection and route tracking.
@@ -34,8 +74,12 @@ enum class AudioFocusState { Paused, Resumed, Lost }
  * on `LOSS`. There is deliberately no media-stream logic here; [DefaultAudioDevice]
  * stops/restarts capture in response.
  *
- * Speaker selection uses `setCommunicationDevice` on API 31+ and the legacy
- * `isSpeakerphoneOn` flag below it, so the class loads and runs on API 24.
+ * On API 31+ speakerphone ON pins [AudioDeviceInfo.TYPE_BUILTIN_SPEAKER], while
+ * speakerphone OFF clears the explicit selection so the platform can keep a
+ * Bluetooth SCO or wired/USB headset as the communication device. Below API 31
+ * the legacy `isSpeakerphoneOn` flag is used. [route] is derived from the
+ * selected communication device first, so it never contradicts where audio is
+ * actually flowing.
  */
 class AudioRouter(context: Context) {
     private val audioManager =
@@ -50,6 +94,7 @@ class AudioRouter(context: Context) {
     private var started = false
     @Volatile
     private var focused = false
+    @Volatile
     private var speakerphone = false
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
@@ -122,12 +167,16 @@ class AudioRouter(context: Context) {
         audioManager.mode = AudioManager.MODE_NORMAL
     }
 
-    /** Routes to the loudspeaker when [on], otherwise to the earpiece. */
+    /**
+     * Routes to the loudspeaker when [on]. When [on] is false on API 31+ the
+     * explicit communication device is cleared so the platform can keep a
+     * Bluetooth or wired headset selected.
+     */
     @Synchronized
     fun setSpeakerphone(on: Boolean) {
         speakerphone = on
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            setCommunicationDevice(on)
+            applyCommunicationDevice(on)
         } else {
             setLegacySpeakerphone(on)
         }
@@ -135,19 +184,24 @@ class AudioRouter(context: Context) {
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
-    private fun setCommunicationDevice(speaker: Boolean) {
-        val targetType = if (speaker) {
-            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        } else {
-            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+    private fun applyCommunicationDevice(speaker: Boolean) {
+        if (!speaker) {
+            if (audioManager.communicationDevice == null) return
+            // `clearCommunicationDevice` returns void; the platform then falls
+            // back to its own preference order, which keeps a Bluetooth or
+            // wired headset selected when one is present.
+            audioManager.clearCommunicationDevice()
+            return
         }
-        val device = audioManager.availableCommunicationDevices.firstOrNull { it.type == targetType }
+
+        val device = audioManager.availableCommunicationDevices
+            .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
         if (device == null) {
-            Log.w(TAG, "no communication device for type $targetType")
+            Log.w(TAG, "no builtin speaker communication device")
             return
         }
         if (!audioManager.setCommunicationDevice(device)) {
-            Log.w(TAG, "setCommunicationDevice($targetType) was rejected")
+            Log.w(TAG, "setCommunicationDevice(builtin speaker) was rejected")
         }
     }
 
@@ -161,23 +215,27 @@ class AudioRouter(context: Context) {
     }
 
     private fun currentRoute(): AudioRoute {
-        val devices = runCatching {
-            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        }.getOrElse {
-            Log.w(TAG, "could not enumerate output devices", it)
-            emptyArray<AudioDeviceInfo>()
+        val selectedType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.communicationDevice?.type
+        } else {
+            null
         }
 
-        if (devices.any { it.type in BLUETOOTH_TYPES }) return AudioRoute.Bluetooth
-        if (devices.any { it.type in HEADSET_TYPES }) return AudioRoute.Headset
+        val outputTypes = runCatching {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+        }.getOrElse {
+            Log.w(TAG, "could not enumerate output devices", it)
+            emptyList()
+        }
 
         val speaker = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+            selectedType == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
+                (selectedType == null && speakerphone)
         } else {
             @Suppress("DEPRECATION")
             audioManager.isSpeakerphoneOn
         }
-        return if (speaker) AudioRoute.Speaker else AudioRoute.Earpiece
+        return selectAudioRoute(outputTypes, selectedType, speaker)
     }
 
     @Suppress("DEPRECATION")
@@ -190,19 +248,5 @@ class AudioRouter(context: Context) {
 
     private companion object {
         const val TAG = "AudioRouter"
-
-        val BLUETOOTH_TYPES = setOf(
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-            AudioDeviceInfo.TYPE_BLE_HEADSET,
-            AudioDeviceInfo.TYPE_BLE_SPEAKER,
-        )
-
-        val HEADSET_TYPES = setOf(
-            AudioDeviceInfo.TYPE_WIRED_HEADSET,
-            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-            AudioDeviceInfo.TYPE_USB_HEADSET,
-            AudioDeviceInfo.TYPE_USB_DEVICE,
-        )
     }
 }
