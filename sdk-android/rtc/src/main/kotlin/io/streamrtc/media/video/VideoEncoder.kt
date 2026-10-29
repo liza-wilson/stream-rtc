@@ -23,7 +23,7 @@ class VideoEncoder(
 ) {
 
     var surface: Surface? = null
-        private set
+
 
     private var codec: MediaCodec? = null
     private var handlerThread: HandlerThread? = null
@@ -43,6 +43,7 @@ class VideoEncoder(
         }
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         val inputSurface = surface ?: codec.createInputSurface()
+        if (surface == null) surface = inputSurface
         codec.configure(format, inputSurface, null, 0)
         codec.start()
         this.codec = codec
