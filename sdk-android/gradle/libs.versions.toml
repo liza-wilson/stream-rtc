@@ -6,6 +6,7 @@ okhttp = "4.12.0"
 cameraX = "1.6.0"
 coreKtx = "1.18.0"
 lifecycle = "2.10.0"
+activity = "1.13.0"
 junit = "4.13.2"
 androidxJunit = "1.2.1"
 testRunner = "1.6.2"
@@ -26,6 +27,7 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "testRunner" }
 androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "testRules" }
+androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "activity" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }

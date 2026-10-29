@@ -29,4 +29,11 @@ interface LocalVideo {
     fun setEnabled(on: Boolean)
     fun switchCamera()
     val stats: StateFlow<VideoStats>
+
+    /**
+     * Releases the camera-facing surface (the handoff to the encoder). Called by
+     * the preview view when its surface is destroyed; the local pipeline should
+     * stop consuming camera frames afterwards.
+     */
+    fun onPreviewSurfaceLost()
 }
