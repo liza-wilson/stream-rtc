@@ -11,12 +11,16 @@ data class PeerInfo(val slot: Int, val userId: String)
  * one; the outbound direction is [RelayLink.requestKeyframe].
  */
 sealed interface RelayEvent {
-    /** The relay accepted `register`: our [slot], the other [peers], and [limits]. */
+    /**
+     * The relay accepted `register`: our [slot], the other [peers], [limits]
+     * and [peerInfo]. `peerInfo` defaults so session tests can build this event
+     * without repeating the peer list when the user ids are irrelevant.
+     */
     data class Registered(
         val slot: Int,
         val peers: List<Int>,
         val limits: Limits,
-        val peerInfo: List<PeerInfo>,
+        val peerInfo: List<PeerInfo> = emptyList(),
     ) : RelayEvent
 
     data class PeerJoined(val slot: Int, val userId: String) : RelayEvent
