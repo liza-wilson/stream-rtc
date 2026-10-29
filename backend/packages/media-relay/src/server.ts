@@ -28,6 +28,7 @@ export interface RelayHandle {
   registry: RelayRegistry
   address: string
   httpUrl: string
+  handleUpgrade(req: import('node:http').IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): boolean
 }
 
 interface SocketState {
@@ -53,19 +54,25 @@ function sendJson(ws: WsLike, message: Record<string, unknown>): void {
 export async function startRelay(opts: {
   port: number
   host?: string
+  server?: import('node:http').Server
+  path?: string
   deps: RelayDeps
 }): Promise<RelayHandle> {
   const registry = opts.deps.registry ?? new RelayRegistry({ now: opts.deps.now })
   const nonces = new NonceStore(NONCE_TTL_MS)
 
-  const http = createServer((req, res) => {
+  const sharedServer = opts.server
+  const relayPath = opts.path ?? '/'
+
+  const requestHandler = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse): void => {
     const url = req.url ?? '/'
-    if (url === '/healthz') {
+    const pathname = url.split('?')[0]
+    if (pathname === '/healthz') {
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ status: 'ok' }))
       return
     }
-    if (url === '/readyz') {
+    if (pathname === '/readyz') {
       const stats = registry.stats()
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ status: 'ready', ...stats }))
@@ -73,16 +80,31 @@ export async function startRelay(opts: {
     }
     res.writeHead(404, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ error: 'not_found' }))
-  })
+  }
 
-  const wss = new WebSocketServer({ server: http, maxPayload: MAX_MEDIA_BYTES + 64 })
+  const http = sharedServer ?? createServer(requestHandler)
 
-  await new Promise<void>((resolve) =>
-    http.listen(opts.port, opts.host ?? '0.0.0.0', () => resolve()),
-  )
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MEDIA_BYTES + 64 })
+
+  const handleUpgrade = (req: import('node:http').IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): boolean => {
+    const url = req.url ?? '/'
+    const pathname = url.split('?')[0]
+    if (relayPath !== '/' && pathname !== relayPath) return false
+    wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+      wss.emit('connection', ws, req)
+    })
+    return true
+  }
+
+  if (!sharedServer) {
+    await new Promise<void>((resolve) =>
+      http.listen(opts.port, opts.host ?? '0.0.0.0', () => resolve()),
+    )
+    http.on('upgrade', (req, socket, head) => { handleUpgrade(req, socket, head) })
+  }
 
   const address = http.address()
-  const port = typeof address === 'object' && address !== null ? address.port : opts.port
+  const port = typeof address === 'object' && address !== null ? (address as { port: number }).port : opts.port
 
   const states = new Map<WebSocket, SocketState>()
 
@@ -230,6 +252,7 @@ export async function startRelay(opts: {
     registry,
     address: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
+    handleUpgrade,
     close: async () => {
       clearInterval(sweep)
       for (const socket of states.keys()) {
@@ -241,8 +264,10 @@ export async function startRelay(opts: {
       }
       states.clear()
       await new Promise<void>((resolve) => wss.close(() => resolve()))
-      http.closeAllConnections()
-      await new Promise<void>((resolve) => http.close(() => resolve()))
+      if (!sharedServer) {
+        http.closeAllConnections()
+        await new Promise<void>((resolve) => http.close(() => resolve()))
+      }
     },
   }
 }

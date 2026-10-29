@@ -23,6 +23,7 @@ export interface ControlHandle {
   httpUrl: string
   presence: Presence
   calls: CallRegistry
+  handleUpgrade(req: import('node:http').IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void
 }
 
 const AUTH_TIMEOUT_MS = 5_000
@@ -41,8 +42,10 @@ function toWsLike(socket: WebSocket): WsLike {
 export async function startControl(opts: {
   port: number
   host?: string
+  server?: import('node:http').Server
   deps: ControlDeps
 }): Promise<ControlHandle> {
+  const sharedServer = opts.server
   const presence = opts.deps.presence ?? new Presence()
   const calls =
     opts.deps.calls ?? new CallRegistry({ now: opts.deps.now, id: opts.deps.id })
@@ -55,7 +58,11 @@ export async function startControl(opts: {
     publicRelayUrl: opts.deps.publicRelayUrl,
   }
 
-  const app: FastifyInstance = Fastify({ logger: false })
+  const app: FastifyInstance = Fastify(
+    sharedServer
+      ? { logger: false, serverFactory: (handler: (req: any, res: any) => void) => { sharedServer.on('request', handler); return sharedServer } }
+      : { logger: false },
+  )
   app.get('/healthz', async () => ({ status: 'ok' }))
   app.get('/readyz', async () => ({ status: 'ready', apps: ctx.apps.appIds().length }))
   app.get('/metrics', async (_request, reply) => {
@@ -63,12 +70,26 @@ export async function startControl(opts: {
     return metricsText()
   })
 
-  await app.listen({ port: opts.port, host: opts.host ?? '0.0.0.0' })
+  if (!sharedServer) {
+    await app.listen({ port: opts.port, host: opts.host ?? '0.0.0.0' })
+  } else {
+    await app.listen({ port: opts.port, host: opts.host ?? '0.0.0.0' })
+  }
 
-  const httpAddress = app.server.address()
-  const port = typeof httpAddress === 'object' && httpAddress !== null ? httpAddress.port : opts.port
+  const httpAddress = sharedServer ? { port: opts.port } : app.server.address()
+  const port = typeof httpAddress === 'object' && httpAddress !== null ? (httpAddress as { port: number }).port : opts.port
 
-  const wss = new WebSocketServer({ server: app.server, maxPayload: MAX_MESSAGE_BYTES })
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES })
+
+  const handleUpgrade = (req: import('node:http').IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void => {
+    wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+      wss.emit('connection', ws, req)
+    })
+  }
+
+  if (!sharedServer) {
+    app.server.on('upgrade', (req, socket, head) => handleUpgrade(req, socket, head))
+  }
 
   wss.on('connection', (socket: WebSocket) => {
     const ws = toWsLike(socket)
@@ -110,16 +131,19 @@ export async function startControl(opts: {
   const sweep = setInterval(() => endTimedOutCalls(ctx), SWEEP_INTERVAL_MS)
   sweep.unref?.()
 
+  const serverForClose = sharedServer ?? app.server
+
   return {
     presence,
     calls,
     address: `ws://127.0.0.1:${port}/ws`,
     httpUrl: `http://127.0.0.1:${port}`,
+    handleUpgrade,
     close: async () => {
       clearInterval(sweep)
       for (const socket of wss.clients) socket.terminate()
       await new Promise<void>((resolve) => wss.close(() => resolve()))
-      await app.close()
+      if (!sharedServer) await app.close()
     },
   }
 }

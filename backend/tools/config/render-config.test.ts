@@ -3,12 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 describe('render.yaml', () => {
-  const cfg = parse(readFileSync('render.yaml', 'utf8'))
+  const cfg = parse(readFileSync('../render.yaml', 'utf8'))
 
-  it('declares exactly the control and relay services', () => {
+  it('declares exactly the combined control+relay service', () => {
     expect(cfg.services.map((s: { name: string }) => s.name).sort()).toEqual([
-      'streamrtc-control',
-      'streamrtc-relay',
+      'streamrtc',
     ])
   })
 

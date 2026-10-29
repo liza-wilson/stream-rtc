@@ -10,14 +10,16 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",
-    "build": "npm run build:control && npm run build:relay",
+    "build": "npm run build:control && npm run build:relay && npm run build:combined",
     "build:control": "esbuild packages/control-plane/src/main.ts --bundle --platform=node --format=esm --target=node22 --external:fastify --external:ws --external:jsonwebtoken --external:zod --external:prom-client --outfile=dist/control/main.js",
     "build:relay": "esbuild packages/media-relay/src/main.ts --bundle --platform=node --format=esm --target=node22 --external:ws --external:jsonwebtoken --external:zod --external:prom-client --outfile=dist/relay/main.js",
     "start:control": "node dist/control/main.js",
     "start:relay": "node dist/relay/main.js",
     "dev:control": "npm run build:control && npm run start:control",
     "dev:relay": "npm run build:relay && npm run start:relay",
-    "smoke": "npm run build && esbuild tools/smoke.ts --bundle --platform=node --format=esm --target=node22 --external:ws --external:jsonwebtoken --outfile=dist/smoke.js && node dist/smoke.js"
+    "smoke": "npm run build && esbuild tools/smoke.ts --bundle --platform=node --format=esm --target=node22 --external:ws --external:jsonwebtoken --outfile=dist/smoke.js && node dist/smoke.js",
+    "build:combined": "esbuild packages/control-plane/src/combined.ts --bundle --platform=node --format=esm --target=node22 --external:fastify --external:ws --external:jsonwebtoken --external:zod --external:prom-client --outfile=dist/combined/main.js",
+    "start:combined": "node dist/combined/main.js"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.7",
