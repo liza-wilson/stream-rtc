@@ -6,6 +6,9 @@ import io.streamrtc.api.CallMedia
 import io.streamrtc.api.CallState
 import io.streamrtc.api.EndReason
 import io.streamrtc.api.IncomingCall
+import io.streamrtc.api.JoinOptions
+import io.streamrtc.api.Room
+import io.streamrtc.api.Rooms
 import io.streamrtc.api.RtcLogger
 import io.streamrtc.api.SessionAudio
 import io.streamrtc.api.StreamRtcConfig
@@ -72,6 +75,10 @@ class SessionManager(
 
     private val _incoming = MutableSharedFlow<IncomingCall>(extraBufferCapacity = 8)
     val incoming: SharedFlow<IncomingCall> = _incoming.asSharedFlow()
+
+    val rooms: Rooms = object : Rooms {
+        override suspend fun join(roomId: String, options: JoinOptions): Room = joinRoom(roomId, options)
+    }
 
     private val _active = MutableStateFlow<Call?>(null)
     val active: StateFlow<Call?> = _active.asStateFlow()
@@ -171,6 +178,15 @@ class SessionManager(
     }
 
     /** Answers the ringing [callId]; throws when it is no longer ringing. */
+    suspend fun joinRoom(roomId: String, options: JoinOptions = JoinOptions()): Room {
+        val provider = config.roomTokenProvider ?: throw IllegalStateException("roomTokenProvider not configured")
+        val token = provider(roomId)
+        val relay = relayFactory()
+        val room = RoomSession(roomId, config, relay, audio, service, scope, clock, logger)
+        room.join(token)
+        return room
+    }
+
     fun acceptIncoming(callId: String): Call = gate.value {
         requireRunning()
         val call = pending.remove(callId)
