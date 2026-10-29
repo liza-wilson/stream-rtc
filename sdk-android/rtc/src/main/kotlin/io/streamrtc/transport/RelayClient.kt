@@ -1,10 +1,10 @@
 package io.streamrtc.transport
 
+import io.streamrtc.api.Limits
 import io.streamrtc.api.RtcLogger
 import io.streamrtc.protocol.ClientMessages
 import io.streamrtc.protocol.FrameCodec
 import io.streamrtc.protocol.Messages
-import io.streamrtc.session.Limits
 import io.streamrtc.session.PeerInfo
 import io.streamrtc.session.RelayEvent
 import io.streamrtc.session.RelayLink
@@ -47,9 +47,13 @@ import kotlinx.serialization.json.jsonObject
  * state is never published after `Idle`. Transport ownership and the attempt
  * generation are guarded by the same lock — the same discipline as
  * [ControlClient].
+ *
+ * [transportFactory] receives the URL passed to [connect] so the real factory
+ * can build an `OkHttpRelayTransport` per relay host; the relay URL is only
+ * known once the control plane has minted the room token.
  */
 class RelayClient(
-    private val transportFactory: () -> RelayTransport,
+    private val transportFactory: (url: String) -> RelayTransport,
     private val scope: CoroutineScope,
     private val logger: RtcLogger = RtcLogger.None,
     private val backoff: Backoff = Backoff(),
@@ -165,7 +169,7 @@ class RelayClient(
         var socket: RelayTransport? = null
         val active = AtomicBoolean(true)
         try {
-            val created = transportFactory()
+            val created = transportFactory(url)
             socket = created
             val owned = synchronized(lock) {
                 if (generation != expected) {

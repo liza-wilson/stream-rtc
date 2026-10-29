@@ -1,5 +1,6 @@
 package io.streamrtc.session
 
+import io.streamrtc.api.Limits
 import io.streamrtc.protocol.RelayFrame
 
 /** A peer already in the room at registration time, from `registered.peerInfo`. */

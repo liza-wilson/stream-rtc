@@ -65,6 +65,3 @@ sealed interface RelayState {
      */
     data class Failed(val code: Int) : RelayState
 }
-
-/** Room capacity limits as reported by the relay in `registered.limits`. */
-data class Limits(val maxParticipants: Int, val maxVideo: Int)
