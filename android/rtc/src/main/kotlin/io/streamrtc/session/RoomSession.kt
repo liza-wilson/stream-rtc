@@ -158,8 +158,6 @@ class RoomSession(
                     }
 
                     is RelayEvent.KeyframeNeeded -> keyframePump.requestKeyframe()
-
-                    else -> Unit
                 }
             }
         }

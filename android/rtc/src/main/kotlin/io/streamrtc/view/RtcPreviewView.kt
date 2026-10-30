@@ -1,36 +1,51 @@
 package io.streamrtc.view
 
 import android.content.Context
-import android.graphics.SurfaceTexture
-import android.view.Surface
+import android.view.SurfaceHolder
 import android.view.SurfaceView
-import androidx.camera.core.Preview
-import androidx.camera.core.SurfaceRequest
-import androidx.core.content.ContextCompat
 import io.streamrtc.api.LocalVideo
-/**
- * CameraX preview surface backed by a [SurfaceView]: frames from the camera are
- * handed to the attached [LocalVideo] through a [Surface] via the
- * [Preview.SurfaceProvider] contract.
- */
-class RtcPreviewView(context: Context) : SurfaceView(context), Preview.SurfaceProvider {
 
-    private val surface: Surface = Surface(SurfaceTexture(false))
+/**
+ * Local camera PiP preview backed by a [SurfaceView]: the holder surface is
+ * handed to the attached [LocalVideo] (display preview output) when it is
+ * created and revoked on destroy.
+ */
+class RtcPreviewView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
+
     private var local: LocalVideo? = null
+    private var displayAttached = false
+
+    init {
+        holder.addCallback(this)
+    }
 
     /** Registers the [LocalVideo] that consumes preview frames. */
     fun setSource(local: LocalVideo?) {
         this.local = local
+        maybeAttach()
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) = maybeAttach()
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = maybeAttach()
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        local?.detachDisplay()
+        displayAttached = false
     }
 
     override fun onDetachedFromWindow() {
-        local?.onPreviewSurfaceLost()
+        local?.detachDisplay()
+        displayAttached = false
         super.onDetachedFromWindow()
     }
 
-    override fun onSurfaceRequested(request: SurfaceRequest) {
-        val local = local
-        if (local == null || request.willNotProvideSurface()) return
-        request.provideSurface(surface, ContextCompat.getMainExecutor(context)) { }
+    private fun maybeAttach() {
+        val local = local ?: return
+        val surface = holder.surface ?: return
+        if (!surface.isValid) return
+        if (displayAttached) return
+        local.attachDisplay(surface)
+        displayAttached = true
     }
 }

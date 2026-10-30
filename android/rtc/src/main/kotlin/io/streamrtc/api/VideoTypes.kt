@@ -1,5 +1,6 @@
 package io.streamrtc.api
 
+import android.view.Surface
 import kotlinx.coroutines.flow.StateFlow
 
 /** Counters for one video direction. Zero until the pipeline is running. */
@@ -36,4 +37,13 @@ interface LocalVideo {
      * stop consuming camera frames afterwards.
      */
     fun onPreviewSurfaceLost()
+
+    /**
+     * Feeds a second camera output (the PiP preview view) with live frames.
+     * Main-thread only; no-ops until the camera itself is bound.
+     */
+    fun attachDisplay(surface: Surface) {}
+
+    /** Stops feeding the display surface; the camera keeps encoding. */
+    fun detachDisplay() {}
 }
