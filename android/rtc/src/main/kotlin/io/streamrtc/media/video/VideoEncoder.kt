@@ -25,9 +25,9 @@ class VideoEncoder(
     var surface: Surface? = null
 
 
-    private var codec: MediaCodec? = null
+    @Volatile private var codec: MediaCodec? = null
     private var handlerThread: HandlerThread? = null
-    private var running = false
+    @Volatile private var running = false
     private val frameCounter = AtomicLong(0L)
 
     fun start() {
@@ -85,18 +85,28 @@ class VideoEncoder(
     private var spsPps: ByteArray? = null
 
     private fun pump() {
-        val codec = codec ?: return
         val bufferInfo = MediaCodec.BufferInfo()
         while (running) {
-            val index = codec.dequeueOutputBuffer(bufferInfo, 10_000)
+            val codec = codec ?: return
+            val index = try {
+                codec.dequeueOutputBuffer(bufferInfo, 10_000)
+            } catch (t: IllegalStateException) {
+                // The codec was stopped/released by another thread while this
+                // loop was blocked inside dequeueOutputBuffer; exit cleanly.
+                return
+            } catch (t: Throwable) {
+                logger.e("VideoEncoder", "dequeueOutputBuffer failed", t)
+                return
+            }
             if (index < 0) continue
+            if (!running) return
             val buffer = codec.getOutputBuffer(index) ?: ByteBuffer.allocate(1)
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
 
             if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
                 spsPps = bytes
-                codec.releaseOutputBuffer(index, false)
+                runCatching { codec.releaseOutputBuffer(index, false) }
                 continue
             }
 
@@ -107,7 +117,7 @@ class VideoEncoder(
                 bytes
             }
             onFrame(payload, keyframe, frameCounter.getAndIncrement())
-            codec.releaseOutputBuffer(index, false)
+            runCatching { codec.releaseOutputBuffer(index, false) }
         }
     }
 }
