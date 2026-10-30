@@ -17,6 +17,7 @@ class RtcPreviewView(context: Context) : SurfaceView(context), SurfaceHolder.Cal
 
     init {
         holder.addCallback(this)
+        setZOrderMediaOverlay(true)
     }
 
     /** Registers the [LocalVideo] that consumes preview frames. */
