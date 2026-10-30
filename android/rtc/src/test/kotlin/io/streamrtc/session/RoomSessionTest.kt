@@ -19,6 +19,8 @@ class RoomSessionTest {
         val m = manager()
         val room = m.joinRoom("r1", JoinOptions(video = true))
         assertEquals("room-r1", relay.token)
+        // The media relay is the /relay socket, not the control plane.
+        assertEquals("wss://c/relay", relay.url)
         relay.emit(RelayEvent.Registered(slot = 0, peers = listOf(1), limits = Limits(16, 8)))
         assertEquals(RoomState.Active, room.state.value)
         assertEquals(listOf(0, 1), room.participants.value.map { it.slot })

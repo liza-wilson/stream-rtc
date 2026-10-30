@@ -1,0 +1,7 @@
+[
+  { "name": "pcm16-20ms", "type": 17, "flags": 0, "mediaTs": 1234, "senderSlot": 2, "payloadHex": "00010203", "clientHex": "53011100000004d200010203", "relayHex": "5301110002000004d200010203" },
+  { "name": "h264-keyframe", "type": 32, "flags": 1, "mediaTs": 4294967295, "senderSlot": 0, "payloadHex": "000000016742001e", "clientHex": "53012001ffffffff000000016742001e", "relayHex": "5301200100ffffffff000000016742001e" },
+  { "name": "h264-delta", "type": 32, "flags": 0, "mediaTs": 0, "senderSlot": 15, "payloadHex": "0000000141", "clientHex": "53012000000000000000000141", "relayHex": "530120000f000000000000000141" },
+  { "name": "opus-empty", "type": 16, "flags": 0, "mediaTs": 65535, "senderSlot": 7, "payloadHex": "", "clientHex": "530110000000ffff", "relayHex": "53011000070000ffff" },
+  { "name": "screen-eos", "type": 32, "flags": 6, "mediaTs": 16777216, "senderSlot": 1, "payloadHex": "ff", "clientHex": "5301200601000000ff", "relayHex": "530120060101000000ff" }
+]

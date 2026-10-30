@@ -15,6 +15,7 @@ import io.streamrtc.media.video.CameraController
 import io.streamrtc.media.video.VideoEncoder
 import io.streamrtc.protocol.FrameCodec
 import io.streamrtc.service.ServiceControl
+import io.streamrtc.transport.relaySocketUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -62,8 +63,13 @@ class RoomSession(
 
     override val audio: SessionAudio = SessionAudioImpl(audioDevice)
 
-    suspend fun join(token: String) {
-        relay.connect(token, config.controlUrl)
+    /**
+     * Joins via the media relay: [relayUrl] must be the relay websocket
+     * endpoint (usually [io.streamrtc.transport.relaySocketUrl] of the
+     * control base URL), not the control plane itself.
+     */
+    suspend fun join(token: String, relayUrl: String) {
+        relay.connect(token, relayUrl)
         service.start()
         collectorJob = scope.launch(Dispatchers.Unconfined) {
             relay.events.collect { event ->

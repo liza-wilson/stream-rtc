@@ -18,6 +18,7 @@ import io.streamrtc.media.audio.AudioDevice
 import io.streamrtc.session.ReconnectDecision
 import io.streamrtc.session.ReconnectPolicy
 import io.streamrtc.transport.Backoff
+import io.streamrtc.transport.relaySocketUrl
 import io.streamrtc.protocol.ClientMessages
 import io.streamrtc.protocol.FrameCodec
 import io.streamrtc.session.RemoteVideoImpl
@@ -193,7 +194,7 @@ class SessionManager(
         val token = provider(roomId)
         val relay = relayFactory()
         val room = RoomSession(roomId, config, relay, audio, service, scope, clock, logger)
-        room.join(token)
+        room.join(token, relaySocketUrl(config.controlUrl))
         return room
     }
 
