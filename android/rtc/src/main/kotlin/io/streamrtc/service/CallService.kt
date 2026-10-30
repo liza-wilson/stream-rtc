@@ -73,17 +73,37 @@ class CallService : Service() {
         try {
             val notification = buildNotification()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Both camera and microphone: the service keeps a 1:1 call's
-                // video and audio alive across activity changes on API 29+.
-                startForeground(NOTIFICATION_ID, notification, FOREGROUND_TYPES)
+                var types = 0
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        this,
+                        android.Manifest.permission.CAMERA
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                }
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        this,
+                        android.Manifest.permission.RECORD_AUDIO
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                }
+                if (types != 0) {
+                    startForeground(NOTIFICATION_ID, notification, types)
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            // Background-start restrictions and vendor ROMs can reject the
-            // promotion; do not take the process down with it.
-            Log.e(TAG, "startForeground failed", e)
-            stopSelf()
+            Log.e(TAG, "startForeground with types failed, attempting fallback", e)
+            try {
+                startForeground(NOTIFICATION_ID, buildNotification())
+            } catch (fallbackEx: Exception) {
+                Log.e(TAG, "startForeground fallback failed", fallbackEx)
+                stopSelf()
+            }
         }
     }
 

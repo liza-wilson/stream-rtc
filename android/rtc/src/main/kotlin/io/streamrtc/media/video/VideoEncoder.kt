@@ -116,7 +116,8 @@ class VideoEncoder(
             } else {
                 bytes
             }
-            onFrame(payload, keyframe, frameCounter.getAndIncrement())
+            val nowMs = android.os.SystemClock.elapsedRealtime()
+            onFrame(payload, keyframe, nowMs)
             runCatching { codec.releaseOutputBuffer(index, false) }
         }
     }
