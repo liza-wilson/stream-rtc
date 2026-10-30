@@ -76,6 +76,7 @@ class SessionManager(
     private val clock: () -> Long,
     @Suppress("unused") private val onQualityChange: (VideoConfig) -> Unit = {},
     private val logger: RtcLogger = RtcLogger.None,
+    private val roomKeyframePump: KeyframePump? = null,
 ) {
     private val gate = SerialGate()
 
@@ -193,7 +194,17 @@ class SessionManager(
         val provider = config.roomTokenProvider ?: throw IllegalStateException("roomTokenProvider not configured")
         val token = provider(roomId)
         val relay = relayFactory()
-        val room = RoomSession(roomId, config, relay, audio, service, scope, clock, logger)
+        val room = RoomSession(
+            roomId = roomId,
+            config = config,
+            relay = relay,
+            audioDevice = audio,
+            service = service,
+            scope = scope,
+            clock = clock,
+            logger = logger,
+            roomKeyframePump = roomKeyframePump,
+        )
         room.join(token, relaySocketUrl(config.controlUrl))
         return room
     }

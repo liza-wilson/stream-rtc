@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 class RemoteVideoImpl(
     override val slot: Int,
     override val userId: String?,
+    private val onNeedKeyframe: () -> Unit = {},
     private val logger: io.streamrtc.api.RtcLogger = io.streamrtc.api.RtcLogger.None,
 ) : RemoteVideo, SurfaceSink {
 
@@ -39,10 +40,17 @@ class RemoteVideoImpl(
         decoder?.push(frame)
     }
 
+    /**
+     * A stalled decoder asks its sender for a fresh keyframe; the owning
+     * session resolves [onNeedKeyframe] to [RelayLink.requestKeyframe] for
+     * this slot.
+     */
+    internal fun requestKeyframeFromSender() = onNeedKeyframe()
+
     override fun attach(surface: android.view.Surface) {
         if (decoder != null) return
         _state.value = RemoteVideoState.WaitingForKeyframe
-        decoder = VideoDecoder(slot, surface, { _state.value = it }, { /* onNeedKeyframe: wired by SessionManager */ }, logger)
+        decoder = VideoDecoder(slot, surface, { _state.value = it }, onNeedKeyframe, logger)
     }
 
     override fun detach() {

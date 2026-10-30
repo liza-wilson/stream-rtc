@@ -52,4 +52,28 @@ class RoomSessionTest {
         assertNull(room.remoteVideo(9))
         assertEquals(1, room.remoteVideo(1)?.slot)
     }
+
+    @Test fun remoteVideoKeyframeRequestsGoToTheRelayForThatSlot() = runTest {
+        val m = manager()
+        val room = m.joinRoom("r1", JoinOptions(video = true))
+        relay.emit(RelayEvent.Registered(0, listOf(1), Limits(16, 8)))
+        val remote = room.remoteVideo(1) as RemoteVideoImpl
+        remote.requestKeyframeFromSender()
+        assertEquals(listOf(1), relay.keyframeRequests)
+    }
+
+    @Test fun keyframeNeededEventsAskOurEncoderForAKeyframe() = runTest {
+        var requests = 0
+        val pump = KeyframePump { requests++ }
+        val m = SessionManager(
+            config, control, { relay }, FakeAudioDevice(), FakeServiceControl(),
+            backgroundScope, clock = { 0 }, roomKeyframePump = pump,
+        )
+        val room = m.joinRoom("r1", JoinOptions(video = true))
+        relay.emit(RelayEvent.Registered(0, emptyList(), Limits(16, 8)))
+        assertEquals(0, requests)
+        relay.emit(RelayEvent.KeyframeNeeded)
+        assertEquals(1, requests)
+        assertEquals(RoomState.Active, room.state.value)
+    }
 }

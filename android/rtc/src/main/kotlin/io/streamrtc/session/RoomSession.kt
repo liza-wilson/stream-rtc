@@ -25,6 +25,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
+ * The sender-side half of keyframe flow control: the pump stands in for the
+ * H.264 encoder until video starts (JVM-session tests inject a recorder).
+ */
+fun interface KeyframePump {
+    fun requestKeyframe()
+}
+
+/**
  * A joined room: owns the relay connection, participant roster and per-slot
  * remote videos; maps relay events to [RoomState].
  */
@@ -37,6 +45,7 @@ class RoomSession(
     private val scope: CoroutineScope,
     private val clock: () -> Long,
     private val logger: io.streamrtc.api.RtcLogger = io.streamrtc.api.RtcLogger.None,
+    roomKeyframePump: KeyframePump? = null,
 ) : Room {
 
     private val registry = ParticipantRegistry()
@@ -57,6 +66,7 @@ class RoomSession(
     private var collectorJob: Job? = null
     private var encoder: VideoEncoder? = null
     private var cameraController: CameraController? = null
+    private var keyframePump: KeyframePump = roomKeyframePump ?: KeyframePump {}
 
     override val self: Participant
         get() = registry.get(selfSlot ?: -1) ?: Participant(slot = selfSlot ?: -1, userId = config.displayName)
@@ -90,7 +100,12 @@ class RoomSession(
                             if (slot == event.slot) continue
                             if (remoteVideosMap[slot] == null) {
                                 val userId = event.peerInfo.find { it.slot == slot }?.userId
-                                remoteVideosMap[slot] = RemoteVideoImpl(slot, userId, logger = logger)
+                                remoteVideosMap[slot] = RemoteVideoImpl(
+                                    slot = slot,
+                                    userId = userId,
+                                    onNeedKeyframe = { relay.requestKeyframe(slot) },
+                                    logger = logger,
+                                )
                             }
                         }
                         _remoteVideos.value = remoteVideosMap.toMap()
@@ -108,7 +123,12 @@ class RoomSession(
                         registry.onPeerJoined(event.slot, event.userId)
                         _participants.value = registry.snapshot()
                         if (remoteVideosMap[event.slot] == null) {
-                            remoteVideosMap[event.slot] = RemoteVideoImpl(event.slot, event.userId, logger = logger)
+                            remoteVideosMap[event.slot] = RemoteVideoImpl(
+                                slot = event.slot,
+                                userId = event.userId,
+                                onNeedKeyframe = { relay.requestKeyframe(event.slot) },
+                                logger = logger,
+                            )
                         }
                         _remoteVideos.value = remoteVideosMap.toMap()
                     }
@@ -136,6 +156,8 @@ class RoomSession(
                     is RelayEvent.Closed -> {
                         _state.value = RoomState.Closed(EndReason.RemoteEnded)
                     }
+
+                    is RelayEvent.KeyframeNeeded -> keyframePump.requestKeyframe()
 
                     else -> Unit
                 }
@@ -171,6 +193,7 @@ class RoomSession(
             this.cameraController = cam
             _localVideo.value = cam
         }
+        keyframePump = KeyframePump { enc.requestKeyframe() }
     }
 
     override fun stopVideo() {
@@ -180,6 +203,7 @@ class RoomSession(
         _localVideo.value = null
         encoder?.stop()
         encoder = null
+        keyframePump = KeyframePump {}
     }
 
     override suspend fun leave() {
